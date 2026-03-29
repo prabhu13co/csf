@@ -1,0 +1,433 @@
+control_id: "F4"
+control_name: "Multi-Factor Authentication"
+control_family: "Identity and Access"
+severity: "critical"
+
+description: |
+  All interactive access to cloud resources and their management planes must require
+  multi-factor authentication (MFA). MFA is enforced centrally via Entra ID Conditional
+  Access policies. At the resource level, this control ensures that authentication methods
+  which bypass Conditional Access (and therefore MFA) are disabled.
+
+  The strategy is two-pronged:
+    1. Entra ID Conditional Access: Require MFA for all users, all cloud apps, from any
+       location. Additional factors required from outside the Organization network.
+    2. Resource configuration: Disable non-Azure-AD authentication methods (shared keys,
+       local admin accounts, API keys, connection strings) so that all access is funneled
+       through Azure AD where Conditional Access enforces MFA.
+
+  This control is primarily about verifying that resources do not offer authentication
+  backdoors that circumvent MFA.
+
+risk_description: |
+  Without MFA, compromised credentials (phishing, credential stuffing, password reuse)
+  provide direct access to cloud resources. An attacker with a stolen password can
+  impersonate a legitimate user, exfiltrate data, modify configurations, or escalate
+  privileges. If resources allow non-Azure-AD authentication (shared keys, local accounts),
+  MFA enforcement via Conditional Access is bypassed entirely, rendering the investment
+  in MFA useless for those resources.
+
+applicable_resource_types:
+  - resource_type: "microsoft.sql/servers"
+    relevance: "critical"
+    rationale: "SQL authentication with username/password bypasses MFA; Azure AD-only auth forces users through Conditional Access."
+    checks:
+      - check_id: "F4-SQL-001"
+        check_name: "SQL server must enforce Azure AD-only authentication"
+        description: "Disabling SQL authentication ensures all users authenticate via Azure AD where MFA is enforced by Conditional Access."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers'
+            | where properties.administrators.azureADOnlyAuthentication != true
+            | project name, resourceGroup, subscriptionId,
+                azureADOnlyAuth=properties.administrators.azureADOnlyAuthentication
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azuread_authentication_only\s*=\s*true"
+              expected: "SQL server must have azuread_authentication_only = true"
+            - file_pattern: "**/*.bicep"
+              search: "azureADOnlyAuthentication: true"
+              expected: "azureADOnlyAuthentication must be true"
+        azure_policies:
+          - policy_name: "Azure SQL Database should have Azure Active Directory Only Authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/abda6d70-9778-44e7-84a8-06713e6db027"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable Azure AD-only authentication on the SQL server:
+            az sql server ad-only-auth enable --resource-group <rg> --name <server>
+          Ensure an Azure AD admin group is configured before enabling this.
+
+  - resource_type: "microsoft.keyvault/vaults"
+    relevance: "critical"
+    rationale: "Key Vault access must go through Azure AD (RBAC or access policies) which is subject to Conditional Access MFA."
+    checks:
+      - check_id: "F4-KV-001"
+        check_name: "Key Vault must use RBAC authorization model"
+        description: "RBAC authorization ensures all access is through Azure AD principals subject to Conditional Access MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.keyvault/vaults'
+            | where properties.enableRbacAuthorization != true
+            | project name, resourceGroup, subscriptionId,
+                enableRbacAuthorization=properties.enableRbacAuthorization
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "enable_rbac_authorization\s*=\s*true"
+              expected: "Key Vault must have enable_rbac_authorization = true"
+            - file_pattern: "**/*.bicep"
+              search: "enableRbacAuthorization: true"
+              expected: "enableRbacAuthorization must be true"
+        azure_policies:
+          - policy_name: "Azure Key Vault should use RBAC permission model"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/12d4fa5e-1f9f-4c21-97a9-b99b3c6611b4"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable RBAC on Key Vault to ensure Azure AD authentication (and thus MFA via CA):
+            az keyvault update --name <vault> --resource-group <rg> --enable-rbac-authorization true
+
+  - resource_type: "microsoft.storage/storageaccounts"
+    relevance: "critical"
+    rationale: "Shared key and SAS token access bypasses Azure AD and therefore bypasses MFA enforcement."
+    checks:
+      - check_id: "F4-SA-001"
+        check_name: "Storage account must disallow shared key access"
+        description: "Shared key access bypasses Azure AD Conditional Access and MFA. Must be disabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where properties.allowSharedKeyAccess != false
+            | project name, resourceGroup, subscriptionId,
+                allowSharedKeyAccess=properties.allowSharedKeyAccess
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "shared_access_key_enabled\s*=\s*false"
+              expected: "shared_access_key_enabled must be false"
+            - file_pattern: "**/*.bicep"
+              search: "allowSharedKeyAccess: false"
+              expected: "allowSharedKeyAccess must be false"
+        azure_policies:
+          - policy_name: "Storage accounts should prevent shared key access"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable shared key access:
+            az storage account update --name <account> --resource-group <rg> \
+              --allow-shared-key-access false
+
+      - check_id: "F4-SA-002"
+        check_name: "Storage account SAS token expiration policy should be configured"
+        description: "SAS tokens bypass Azure AD; if they must be used, enforce short expiration to limit exposure window."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where isnull(properties.sasPolicy) or isnull(properties.sasPolicy.sasExpirationPeriod)
+            | project name, resourceGroup, subscriptionId, sasPolicy=properties.sasPolicy
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "sas_policy"
+              expected: "Storage account should have sas_policy block with expiration_period"
+        azure_policies:
+          - policy_name: "Storage accounts should have shared access signature (SAS) policies configured"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/bc1b984e-ddae-40cc-801a-050a1c75900c"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Configure a SAS expiration policy to limit token lifetime.
+
+  - resource_type: "microsoft.web/sites"
+    relevance: "high"
+    rationale: "App Services with basic auth or FTP access bypass Azure AD MFA."
+    checks:
+      - check_id: "F4-WEB-001"
+        check_name: "App Service must have basic authentication disabled"
+        description: "Basic authentication (username/password for publishing) bypasses Azure AD and MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | where properties.siteConfig.basicPublishingCredentialsPolicies.ftp.allow == true
+                or properties.siteConfig.basicPublishingCredentialsPolicies.scm.allow == true
+            | project name, resourceGroup, subscriptionId
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "basic_auth_enabled"
+              expected: "basic_auth_enabled should be false for both ftp and scm"
+        azure_policies:
+          - policy_name: "App Service apps should have local authentication methods disabled for FTP deployments"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/871b205b-57cf-4e1e-a234-0e6e1c2d2a58"
+            effect: "auditIfNotExists"
+            parameters: {}
+          - policy_name: "App Service apps should have local authentication methods disabled for SCM site deployments"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/aede300b-d67f-480a-859f-74f83c0cb1c8"
+            effect: "auditIfNotExists"
+            parameters: {}
+        remediation: |
+          Disable basic auth for FTP and SCM:
+            az resource update --resource-group <rg> --name ftp --namespace Microsoft.Web \
+              --resource-type basicPublishingCredentialsPolicies --parent sites/<app> \
+              --set properties.allow=false
+            az resource update --resource-group <rg> --name scm --namespace Microsoft.Web \
+              --resource-type basicPublishingCredentialsPolicies --parent sites/<app> \
+              --set properties.allow=false
+
+      - check_id: "F4-WEB-002"
+        check_name: "App Service must have FTP disabled"
+        description: "FTP/FTPS access uses basic credentials that bypass Azure AD MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | where properties.siteConfig.ftpsState != 'Disabled'
+            | project name, resourceGroup, subscriptionId,
+                ftpsState=properties.siteConfig.ftpsState
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "ftps_state"
+              expected: "ftps_state should be set to Disabled"
+            - file_pattern: "**/*.bicep"
+              search: "ftpsState"
+              expected: "ftpsState should be Disabled"
+        azure_policies:
+          - policy_name: "App Service apps should require FTPS only"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/4d24b6d4-5e53-4a4f-a7f4-618fa573ee4b"
+            effect: "auditIfNotExists"
+            parameters: {}
+        remediation: |
+          Disable FTP access entirely:
+            az webapp config set --resource-group <rg> --name <app> --ftps-state Disabled
+
+  - resource_type: "microsoft.containerregistry/registries"
+    relevance: "high"
+    rationale: "ACR admin account uses username/password that bypasses Azure AD MFA."
+    checks:
+      - check_id: "F4-ACR-001"
+        check_name: "Container registry must have admin account disabled"
+        description: "Admin account credentials bypass Azure AD Conditional Access and MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerregistry/registries'
+            | where properties.adminUserEnabled == true
+            | project name, resourceGroup, subscriptionId,
+                adminUserEnabled=properties.adminUserEnabled
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "admin_enabled\s*=\s*false"
+              expected: "admin_enabled must be false"
+            - file_pattern: "**/*.bicep"
+              search: "adminUserEnabled: false"
+              expected: "adminUserEnabled must be false"
+        azure_policies:
+          - policy_name: "Container registries should have local admin account disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/dc921057-6b28-4fbe-9b83-f7bec05db6c2"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable admin user:
+            az acr update --name <registry> --admin-enabled false
+
+  - resource_type: "microsoft.authorization/roleassignments"
+    relevance: "high"
+    rationale: "Role assignments must only reference Azure AD principals (users, groups, service principals) which are subject to Conditional Access MFA."
+    checks:
+      - check_id: "F4-RBAC-001"
+        check_name: "Role assignments must reference valid Azure AD principals"
+        description: "All role assignments should reference active Azure AD principals to ensure MFA enforcement."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roleassignments'
+            | where properties.principalType == 'Unknown'
+            | project roleAssignmentId=id, principalId=properties.principalId,
+                scope=properties.scope, roleDefinitionId=properties.roleDefinitionId
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_role_assignment"
+              expected: "Role assignments should reference Azure AD group or user object IDs"
+        azure_policies: []
+        remediation: |
+          Remove role assignments with unknown principal types; these reference deleted
+          Azure AD objects and indicate stale access.
+
+  - resource_type: "microsoft.servicebus/namespaces"
+    relevance: "medium"
+    rationale: "Service Bus can use shared access policies with SAS keys that bypass Azure AD MFA."
+    checks:
+      - check_id: "F4-SB-001"
+        check_name: "Service Bus should disable local authentication"
+        description: "Local SAS key authentication bypasses Azure AD Conditional Access and MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.servicebus/namespaces'
+            | where properties.disableLocalAuth != true
+            | project name, resourceGroup, subscriptionId,
+                disableLocalAuth=properties.disableLocalAuth
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "local_auth_enabled"
+              expected: "local_auth_enabled should be set to false"
+        azure_policies:
+          - policy_name: "Service Bus namespaces should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cfb11c26-f069-4c14-8e36-56c394571571"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable local authentication on Service Bus namespace:
+            az servicebus namespace update --resource-group <rg> --name <namespace> \
+              --disable-local-auth true
+
+  - resource_type: "microsoft.eventhub/namespaces"
+    relevance: "medium"
+    rationale: "Event Hub SAS key access bypasses Azure AD MFA."
+    checks:
+      - check_id: "F4-EH-001"
+        check_name: "Event Hub should disable local authentication"
+        description: "Local SAS key authentication bypasses Azure AD Conditional Access and MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.eventhub/namespaces'
+            | where properties.disableLocalAuth != true
+            | project name, resourceGroup, subscriptionId,
+                disableLocalAuth=properties.disableLocalAuth
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "local_auth_enabled"
+              expected: "local_auth_enabled should be set to false"
+        azure_policies:
+          - policy_name: "Event Hub namespaces should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/5765d474-cc3d-43e0-a839-92ae7c063592"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable local authentication on Event Hub namespace.
+
+  - resource_type: "microsoft.cache/redis"
+    relevance: "medium"
+    rationale: "Redis access key authentication bypasses Azure AD MFA."
+    checks:
+      - check_id: "F4-REDIS-001"
+        check_name: "Redis Cache should use Azure AD authentication"
+        description: "Redis should use Azure AD authentication instead of access keys."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.cache/redis'
+            | where properties.redisConfiguration.['aad-enabled'] != 'true'
+            | project name, resourceGroup, subscriptionId,
+                redisConfig=properties.redisConfiguration
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "active_directory_authentication_enabled"
+              expected: "active_directory_authentication_enabled should be true"
+        azure_policies:
+          - policy_name: "Azure Cache for Redis should use Microsoft Entra for authenticating access"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/9907e27c-10ef-4472-b41f-7e32ac7ee63d"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable Azure AD authentication on Redis Cache and disable access key authentication.
+
+  - resource_type: "microsoft.cognitiveservices/accounts"
+    relevance: "medium"
+    rationale: "API key access to Cognitive Services bypasses Azure AD MFA."
+    checks:
+      - check_id: "F4-COG-001"
+        check_name: "Cognitive Services must disable local API key authentication"
+        description: "API key authentication bypasses Azure AD Conditional Access and MFA."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.cognitiveservices/accounts'
+            | where properties.disableLocalAuth != true
+            | project name, resourceGroup, subscriptionId,
+                disableLocalAuth=properties.disableLocalAuth
+        azure_policies:
+          - policy_name: "Cognitive Services accounts should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/71ef260a-8f18-47b7-abcb-62d0673d94dc"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable local authentication on Cognitive Services account.
+
+cross_cutting_queries:
+  - query_id: "F4-CROSS-001"
+    query_name: "All resources with local authentication enabled"
+    description: "Find all resources that allow non-Azure-AD authentication, bypassing Conditional Access MFA."
+    query: |
+      Resources
+      | where (type == 'microsoft.sql/servers' and properties.administrators.azureADOnlyAuthentication != true)
+      | union (
+          Resources
+          | where type == 'microsoft.storage/storageaccounts' and properties.allowSharedKeyAccess != false
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.containerregistry/registries' and properties.adminUserEnabled == true
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.servicebus/namespaces' and properties.disableLocalAuth != true
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.eventhub/namespaces' and properties.disableLocalAuth != true
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.cognitiveservices/accounts' and properties.disableLocalAuth != true
+      )
+      | project name, type, resourceGroup, subscriptionId
+      | order by type asc, name asc
+
+  - query_id: "F4-CROSS-002"
+    query_name: "App Services with basic auth or FTP enabled"
+    description: "Find App Services that allow publishing credentials or FTP that bypass MFA."
+    query: |
+      Resources
+      | where type == 'microsoft.web/sites'
+      | where properties.siteConfig.ftpsState != 'Disabled'
+          or properties.siteConfig.basicPublishingCredentialsPolicies.ftp.allow == true
+          or properties.siteConfig.basicPublishingCredentialsPolicies.scm.allow == true
+      | project name, resourceGroup, subscriptionId,
+          ftpsState=properties.siteConfig.ftpsState
+
+  - query_id: "F4-CROSS-003"
+    query_name: "Orphaned role assignments (deleted principals)"
+    description: "Role assignments referencing deleted Azure AD objects cannot be subject to MFA."
+    query: |
+      AuthorizationResources
+      | where type == 'microsoft.authorization/roleassignments'
+      | where properties.principalType == 'Unknown'
+      | summarize count() by subscriptionId=tostring(split(id, '/')[2])

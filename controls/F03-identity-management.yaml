@@ -1,0 +1,489 @@
+control_id: "F3"
+control_name: "Identity Management"
+control_family: "Identity and Access"
+severity: "critical"
+
+description: |
+  All access to cloud resources must be through registered digital identities managed
+  by the Organization IAM system (Azure AD / Entra ID). Local accounts, shared credentials,
+  and unmanaged service principals are prohibited. Identities must be synchronized with
+  the central directory and subject to lifecycle management (joiner-mover-leaver).
+
+  For Azure resources this means:
+    - Azure AD authentication must be the primary (or sole) authentication method.
+    - Shared keys, connection strings with embedded credentials, and local admin accounts
+      must be disabled where the platform supports Azure AD as an alternative.
+    - Managed identities (system-assigned or user-assigned) should be preferred over
+      service principals with client secrets.
+
+risk_description: |
+  Unauthorized accounts with no active trust relationship may access information systems.
+  Former employees or contractors retain access because local accounts are not tied to the
+  joiner-mover-leaver lifecycle. Shared credentials cannot be attributed to an individual,
+  preventing accountability and forensic investigation. Data leakage occurs when access
+  is granted through unmanaged channels that bypass conditional access, MFA, and session
+  controls.
+
+applicable_resource_types:
+  - resource_type: "microsoft.sql/servers"
+    relevance: "critical"
+    rationale: "SQL servers must use Azure AD authentication to tie database access to managed identities."
+    checks:
+      - check_id: "F3-SQL-001"
+        check_name: "SQL server must have Azure AD administrator configured"
+        description: "An Azure AD admin must be set on the SQL server to enable Azure AD authentication."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers'
+            | where isnull(properties.administrators.administratorType)
+                or properties.administrators.administratorType != 'ActiveDirectory'
+            | project name, resourceGroup, subscriptionId, properties.administrators
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azuread_administrator"
+              expected: "SQL server must have azuread_administrator block configured"
+            - file_pattern: "**/*.bicep"
+              search: "administrators:"
+              expected: "SQL server must have administrators block with Azure AD configuration"
+        azure_policies:
+          - policy_name: "An Azure Active Directory administrator should be provisioned for SQL servers"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/1f314764-cb73-4fc9-b863-8eca98ac36e9"
+            effect: "auditIfNotExists"
+            parameters: {}
+        remediation: |
+          Configure an Azure AD administrator on the SQL server:
+            az sql server ad-admin create --resource-group <rg> --server-name <server> \
+              --display-name <aad-group-name> --object-id <aad-group-object-id>
+
+      - check_id: "F3-SQL-002"
+        check_name: "SQL server should use Azure AD-only authentication"
+        description: "SQL authentication (local accounts) should be disabled; only Azure AD authentication should be allowed."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers'
+            | where properties.administrators.azureADOnlyAuthentication != true
+            | project name, resourceGroup, subscriptionId,
+                azureADOnlyAuth=properties.administrators.azureADOnlyAuthentication
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azuread_authentication_only"
+              expected: "azuread_authentication_only should be set to true"
+            - file_pattern: "**/*.bicep"
+              search: "azureADOnlyAuthentication"
+              expected: "azureADOnlyAuthentication should be true"
+        azure_policies:
+          - policy_name: "Azure SQL Database should have Azure Active Directory Only Authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/abda6d70-9778-44e7-84a8-06713e6db027"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable Azure AD-only authentication:
+            az sql server ad-only-auth enable --resource-group <rg> --name <server>
+
+  - resource_type: "microsoft.storage/storageaccounts"
+    relevance: "critical"
+    rationale: "Storage accounts must use Azure AD for data plane access; shared key access bypasses identity controls."
+    checks:
+      - check_id: "F3-SA-001"
+        check_name: "Storage account should disallow shared key access"
+        description: "Shared key access should be disabled to force Azure AD authentication for all data plane operations."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where properties.allowSharedKeyAccess != false
+            | project name, resourceGroup, subscriptionId,
+                allowSharedKeyAccess=properties.allowSharedKeyAccess
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "shared_access_key_enabled"
+              expected: "shared_access_key_enabled should be set to false"
+            - file_pattern: "**/*.bicep"
+              search: "allowSharedKeyAccess"
+              expected: "allowSharedKeyAccess should be set to false"
+        azure_policies:
+          - policy_name: "Storage accounts should prevent shared key access"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable shared key access on the storage account:
+            az storage account update --name <account> --resource-group <rg> \
+              --allow-shared-key-access false
+
+      - check_id: "F3-SA-002"
+        check_name: "Storage account should use Azure AD for default authentication"
+        description: "Default authentication should be Azure AD, not storage account keys."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where properties.defaultToOAuthAuthentication != true
+            | project name, resourceGroup, subscriptionId,
+                defaultToOAuth=properties.defaultToOAuthAuthentication
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "default_to_oauth_authentication"
+              expected: "default_to_oauth_authentication should be set to true"
+        azure_policies: []
+        remediation: |
+          Set default authentication to Azure AD:
+            az storage account update --name <account> --resource-group <rg> \
+              --default-action Deny --default-to-oauth-authentication true
+
+  - resource_type: "microsoft.web/sites"
+    relevance: "high"
+    rationale: "App Services must use Azure AD authentication to prevent anonymous or local credential access."
+    checks:
+      - check_id: "F3-WEB-001"
+        check_name: "App Service must have Azure AD authentication enabled"
+        description: "App Services should use Azure AD/Entra ID authentication rather than anonymous access or basic auth."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | extend authSettings = properties.siteConfig.siteAuthEnabled
+            | where authSettings != true
+            | project name, resourceGroup, subscriptionId, kind=properties.kind, authSettings
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "auth_settings_v2"
+              expected: "App Service must have auth_settings_v2 block with Azure AD provider"
+            - file_pattern: "**/*.bicep"
+              search: "authsettingsV2"
+              expected: "authsettingsV2 must be configured with Azure AD identity provider"
+        azure_policies:
+          - policy_name: "App Service apps should use managed identity"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2b9ad585-36bc-4615-b300-fd4435808332"
+            effect: "auditIfNotExists"
+            parameters: {}
+          - policy_name: "Authentication should be enabled on your web app"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/95bccee9-a7f8-4bec-9ee9-62c3473701a7"
+            effect: "auditIfNotExists"
+            parameters: {}
+        remediation: |
+          Enable Azure AD authentication on the App Service via Authentication settings (EasyAuth)
+          or implement Azure AD authentication in application code using MSAL.
+
+      - check_id: "F3-WEB-002"
+        check_name: "App Service must use managed identity"
+        description: "App Services should use system-assigned or user-assigned managed identity for accessing other Azure resources."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | where isnull(identity) or identity.type == 'None'
+            | project name, resourceGroup, subscriptionId, identity
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "identity\s*\{"
+              expected: "App Service must have an identity block with type SystemAssigned or UserAssigned"
+            - file_pattern: "**/*.bicep"
+              search: "identity:"
+              expected: "App Service must have identity configuration"
+        azure_policies:
+          - policy_name: "App Service apps should use managed identity"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2b9ad585-36bc-4615-b300-fd4435808332"
+            effect: "auditIfNotExists"
+            parameters: {}
+        remediation: |
+          Enable managed identity on the App Service:
+            az webapp identity assign --name <app> --resource-group <rg>
+
+  - resource_type: "microsoft.containerservice/managedclusters"
+    relevance: "critical"
+    rationale: "AKS clusters must integrate with Azure AD for cluster authentication and RBAC."
+    checks:
+      - check_id: "F3-AKS-001"
+        check_name: "AKS cluster must have Azure AD integration enabled"
+        description: "AKS must use Azure AD for cluster authentication rather than local Kubernetes accounts."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerservice/managedclusters'
+            | where isnull(properties.aadProfile) or properties.aadProfile.managed != true
+            | project name, resourceGroup, subscriptionId, aadProfile=properties.aadProfile
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azure_active_directory_role_based_access_control"
+              expected: "AKS must have azure_active_directory_role_based_access_control block"
+            - file_pattern: "**/*.bicep"
+              search: "aadProfile:"
+              expected: "AKS must have aadProfile with managed set to true"
+        azure_policies:
+          - policy_name: "Azure Kubernetes Service Clusters should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/993c2fcd-2b29-49d2-9eb0-df2c3a730c32"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable Azure AD integration on AKS:
+            az aks update --resource-group <rg> --name <cluster> --enable-aad
+
+      - check_id: "F3-AKS-002"
+        check_name: "AKS cluster must disable local accounts"
+        description: "Local Kubernetes accounts should be disabled to enforce Azure AD-only authentication."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerservice/managedclusters'
+            | where properties.disableLocalAccounts != true
+            | project name, resourceGroup, subscriptionId,
+                disableLocalAccounts=properties.disableLocalAccounts
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "local_account_disabled"
+              expected: "local_account_disabled should be set to true"
+            - file_pattern: "**/*.bicep"
+              search: "disableLocalAccounts"
+              expected: "disableLocalAccounts should be set to true"
+        azure_policies:
+          - policy_name: "Azure Kubernetes Service Clusters should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/993c2fcd-2b29-49d2-9eb0-df2c3a730c32"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable local accounts:
+            az aks update --resource-group <rg> --name <cluster> --disable-local-accounts
+
+  - resource_type: "microsoft.keyvault/vaults"
+    relevance: "critical"
+    rationale: "Key Vault access must be via Azure AD identities; access policies or RBAC must reference AAD principals."
+    checks:
+      - check_id: "F3-KV-001"
+        check_name: "Key Vault should use RBAC authorization"
+        description: "Key Vault should use Azure RBAC instead of vault access policies for fine-grained Azure AD-based access control."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.keyvault/vaults'
+            | where properties.enableRbacAuthorization != true
+            | project name, resourceGroup, subscriptionId,
+                enableRbacAuthorization=properties.enableRbacAuthorization
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "enable_rbac_authorization"
+              expected: "enable_rbac_authorization should be set to true"
+            - file_pattern: "**/*.bicep"
+              search: "enableRbacAuthorization"
+              expected: "enableRbacAuthorization should be true"
+        azure_policies:
+          - policy_name: "Azure Key Vault should use RBAC permission model"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/12d4fa5e-1f9f-4c21-97a9-b99b3c6611b4"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable RBAC authorization on Key Vault:
+            az keyvault update --name <vault> --resource-group <rg> --enable-rbac-authorization true
+
+  - resource_type: "microsoft.containerregistry/registries"
+    relevance: "high"
+    rationale: "Container registries must use Azure AD authentication; admin account must be disabled."
+    checks:
+      - check_id: "F3-ACR-001"
+        check_name: "Container registry must have admin user disabled"
+        description: "The built-in admin account on ACR must be disabled; all access must use Azure AD identities."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerregistry/registries'
+            | where properties.adminUserEnabled == true
+            | project name, resourceGroup, subscriptionId,
+                adminUserEnabled=properties.adminUserEnabled
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "admin_enabled"
+              expected: "admin_enabled should be set to false (or omitted, default is false)"
+            - file_pattern: "**/*.bicep"
+              search: "adminUserEnabled"
+              expected: "adminUserEnabled should be false"
+        azure_policies:
+          - policy_name: "Container registries should have local admin account disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/dc921057-6b28-4fbe-9b83-f7bec05db6c2"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable the admin user on the container registry:
+            az acr update --name <registry> --admin-enabled false
+
+  - resource_type: "microsoft.cognitiveservices/accounts"
+    relevance: "high"
+    rationale: "Cognitive Services should use Azure AD authentication; API key access should be disabled where possible."
+    checks:
+      - check_id: "F3-COG-001"
+        check_name: "Cognitive Services should disable local authentication"
+        description: "Local authentication (API keys) should be disabled to enforce Azure AD authentication."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.cognitiveservices/accounts'
+            | where properties.disableLocalAuth != true
+            | project name, resourceGroup, subscriptionId,
+                disableLocalAuth=properties.disableLocalAuth
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "local_auth_enabled"
+              expected: "local_auth_enabled should be set to false"
+            - file_pattern: "**/*.bicep"
+              search: "disableLocalAuth"
+              expected: "disableLocalAuth should be true"
+        azure_policies:
+          - policy_name: "Cognitive Services accounts should have local authentication methods disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/71ef260a-8f18-47b7-abcb-62d0673d94dc"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Disable local authentication on Cognitive Services:
+            az cognitiveservices account update --name <account> --resource-group <rg> \
+              --custom-domain <domain> --api-properties disableLocalAuth=true
+
+  - resource_type: "microsoft.apimanagement/service"
+    relevance: "high"
+    rationale: "API Management must use Azure AD for management plane and can enforce Azure AD for API consumers."
+    checks:
+      - check_id: "F3-APIM-001"
+        check_name: "API Management should use managed identity"
+        description: "API Management should use managed identity for accessing backend services."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.apimanagement/service'
+            | where isnull(identity) or identity.type == 'None'
+            | project name, resourceGroup, subscriptionId, identity
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "identity\s*\{"
+              expected: "API Management must have an identity block"
+            - file_pattern: "**/*.bicep"
+              search: "identity:"
+              expected: "API Management must have identity configuration"
+        azure_policies: []
+        remediation: |
+          Enable managed identity on API Management:
+            az apim update --name <apim> --resource-group <rg> --set identity.type=SystemAssigned
+
+  - resource_type: "microsoft.managedidentity/userassignedidentities"
+    relevance: "medium"
+    rationale: "User-assigned managed identities are the preferred mechanism for service-to-service authentication."
+    checks:
+      - check_id: "F3-MI-001"
+        check_name: "User-assigned managed identities must be in tagged resource groups"
+        description: "Managed identities must be traceable to an owning workload via resource group tags."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.managedidentity/userassignedidentities'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies: []
+        remediation: |
+          Ensure managed identities are in properly tagged resource groups with WorkloadID.
+
+  - resource_type: "microsoft.dbforpostgresql/flexibleservers"
+    relevance: "high"
+    rationale: "PostgreSQL flexible servers should use Azure AD authentication for user access."
+    checks:
+      - check_id: "F3-PG-001"
+        check_name: "PostgreSQL flexible server should have Azure AD authentication enabled"
+        description: "PostgreSQL flexible servers should support Azure AD authentication alongside or instead of password authentication."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.dbforpostgresql/flexibleservers'
+            | where properties.authConfig.activeDirectoryAuth != 'Enabled'
+            | project name, resourceGroup, subscriptionId,
+                authConfig=properties.authConfig
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "authentication"
+              expected: "PostgreSQL should have authentication block with active_directory_auth_enabled = true"
+            - file_pattern: "**/*.bicep"
+              search: "authConfig"
+              expected: "authConfig should have activeDirectoryAuth set to Enabled"
+        azure_policies:
+          - policy_name: "Azure PostgreSQL flexible server should have Azure Active Directory Only Authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/b4dec045-250a-48c2-b5cc-e0c4eec8b5b4"
+            effect: "audit"
+            parameters: {}
+        remediation: |
+          Enable Azure AD authentication on PostgreSQL flexible server via the Azure portal
+          or CLI authentication configuration.
+
+cross_cutting_queries:
+  - query_id: "F3-CROSS-001"
+    query_name: "Resources without managed identity"
+    description: "Find resources that support managed identity but do not have one assigned."
+    query: |
+      Resources
+      | where type in (
+          'microsoft.web/sites',
+          'microsoft.containerservice/managedclusters',
+          'microsoft.apimanagement/service',
+          'microsoft.datafactory/factories',
+          'microsoft.cognitiveservices/accounts',
+          'microsoft.app/containerapps'
+        )
+      | where isnull(identity) or identity.type == 'None'
+      | project name, type, resourceGroup, subscriptionId
+
+  - query_id: "F3-CROSS-002"
+    query_name: "Resources with local authentication enabled"
+    description: "Find resources where local/non-AAD authentication is still enabled."
+    query: |
+      Resources
+      | where type == 'microsoft.sql/servers'
+          and properties.administrators.azureADOnlyAuthentication != true
+      | union (
+          Resources
+          | where type == 'microsoft.containerregistry/registries'
+              and properties.adminUserEnabled == true
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.storage/storageaccounts'
+              and properties.allowSharedKeyAccess != false
+      )
+      | union (
+          Resources
+          | where type == 'microsoft.cognitiveservices/accounts'
+              and properties.disableLocalAuth != true
+      )
+      | project name, type, resourceGroup, subscriptionId
+
+  - query_id: "F3-CROSS-003"
+    query_name: "SQL servers without Azure AD administrator"
+    description: "Find SQL servers that have no Azure AD administrator configured."
+    query: |
+      Resources
+      | where type == 'microsoft.sql/servers'
+      | where isnull(properties.administrators.administratorType)
+          or properties.administrators.administratorType != 'ActiveDirectory'
+      | project name, resourceGroup, subscriptionId

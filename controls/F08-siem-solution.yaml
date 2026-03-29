@@ -1,0 +1,278 @@
+control_id: "F8"
+control_name: "Integrated SIEM Solution"
+control_family: "Security Operations"
+severity: "high"
+description: |
+  Deploy and maintain an integrated Security Information and Event Management (SIEM)
+  solution with AI-driven analytics and threat intelligence. All security events must
+  be collected, stored, and correlated to enable 24/7 threat detection, investigation,
+  and automated remediation. Microsoft Sentinel serves as the primary SIEM platform
+  integrated with Azure services.
+risk_description: |
+  Without an integrated SIEM, security incidents go undetected, enabling data leakage,
+  persistent threats, and resource misuse. Lack of event correlation prevents
+  identification of complex multi-stage attacks. Absence of automated remediation
+  increases mean time to respond (MTTR). Anomalous behavior patterns cannot be
+  detected without centralized log analysis and AI-driven analytics.
+applicable_resource_types:
+  - resource_type: "microsoft.operationalinsights/workspaces"
+    relevance: "high"
+    checks:
+      - check_id: "F8-LA-001"
+        check_name: "Log Analytics workspace exists for Sentinel"
+        description: "Verify that a dedicated Log Analytics workspace exists and is configured to support Microsoft Sentinel."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.operationalinsights/workspaces'
+            | project name, resourceGroup, subscriptionId, location,
+                      sku=properties.sku.name,
+                      retentionDays=properties.retentionInDays
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_log_analytics_workspace"
+              expected: "A Log Analytics workspace must be provisioned for Sentinel"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.OperationalInsights/workspaces"
+              expected: "A Log Analytics workspace must be provisioned for Sentinel"
+        azure_policies:
+          - policy_name: "Deploy Log Analytics agent for Linux VMs"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/053d3325-282c-4e5c-b944-24faffd30d77"
+            effect: "DeployIfNotExists"
+        remediation: |
+          Create a Log Analytics workspace:
+            az monitor log-analytics workspace create --workspace-name sentinel-workspace \
+              --resource-group security-rg --location eastus --retention-time 365
+
+      - check_id: "F8-LA-002"
+        check_name: "Log Analytics workspace retention meets requirements"
+        description: "Verify that the Log Analytics workspace has a retention period of at least 90 days (365 recommended)."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.operationalinsights/workspaces'
+            | where toint(properties.retentionInDays) < 90
+            | project name, resourceGroup, subscriptionId,
+                      retentionDays=properties.retentionInDays
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "retention_in_days"
+              expected: "retention_in_days should be >= 90 (365 recommended)"
+            - file_pattern: "**/*.bicep"
+              search: "retentionInDays"
+              expected: "retentionInDays should be >= 90 (365 recommended)"
+        azure_policies:
+          - policy_name: "Log Analytics workspaces should have a minimum retention period"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/0fc39691-5a3f-4e3e-94ee-2e6447de87ff"
+            effect: "Audit"
+        remediation: |
+          Update workspace retention:
+            az monitor log-analytics workspace update --workspace-name <name> \
+              --resource-group <rg> --retention-time 365
+
+  - resource_type: "microsoft.securityinsights/onboardingstates"
+    relevance: "high"
+    checks:
+      - check_id: "F8-SI-001"
+        check_name: "Microsoft Sentinel is enabled on the workspace"
+        description: "Verify that Microsoft Sentinel is onboarded and active on the Log Analytics workspace."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.securityinsights/settings'
+                 or type == 'microsoft.securityinsights/onboardingstates'
+            | project name, resourceGroup, subscriptionId, type
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_sentinel_log_analytics_workspace_onboarding"
+              expected: "Sentinel must be onboarded to the Log Analytics workspace"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.SecurityInsights/onboardingStates"
+              expected: "Sentinel must be onboarded to the Log Analytics workspace"
+        azure_policies:
+          - policy_name: "Azure Sentinel should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2f2f3758-b0cc-4c65-bd7e-03cd8bea8e8e"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Sentinel on the workspace:
+            az sentinel onboarding-state create --resource-group security-rg \
+              --workspace-name sentinel-workspace --name default
+          Or via Terraform:
+            resource "azurerm_sentinel_log_analytics_workspace_onboarding" "main" {
+              workspace_id = azurerm_log_analytics_workspace.sentinel.id
+            }
+
+  - resource_type: "microsoft.securityinsights/dataconnectors"
+    relevance: "high"
+    checks:
+      - check_id: "F8-DC-001"
+        check_name: "Azure Activity data connector is configured"
+        description: "Verify that the Azure Activity data connector is enabled in Sentinel to ingest Azure activity logs."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type =~ 'microsoft.securityinsights/dataconnectors'
+            | where kind == 'AzureActivity'
+            | project name, resourceGroup, subscriptionId, kind
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_sentinel_data_connector_azure_active_directory"
+              expected: "Azure Activity data connector should be configured in Sentinel"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.SecurityInsights/dataConnectors"
+              expected: "Azure Activity data connector should be configured in Sentinel"
+        azure_policies:
+          - policy_name: "Deploy - Configure diagnostic settings for Azure Activity Logs to Log Analytics workspace"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2465583e-4e78-4c15-b6be-a36cbc7c8b0f"
+            effect: "DeployIfNotExists"
+        remediation: |
+          Enable the Azure Activity data connector in Sentinel:
+            1. Navigate to Microsoft Sentinel > Data connectors.
+            2. Find "Azure Activity" and click Connect.
+            3. Select all subscriptions to connect.
+          Or configure via diagnostic settings sending Activity Logs to the Sentinel workspace.
+
+      - check_id: "F8-DC-002"
+        check_name: "Microsoft Entra ID data connector is configured"
+        description: "Verify that sign-in and audit logs from Entra ID are connected to Sentinel."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type =~ 'microsoft.securityinsights/dataconnectors'
+            | where kind == 'AzureActiveDirectory'
+            | project name, resourceGroup, subscriptionId, kind
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_sentinel_data_connector_azure_active_directory"
+              expected: "Entra ID data connector should be configured in Sentinel"
+            - file_pattern: "**/*.bicep"
+              search: "kind: 'AzureActiveDirectory'"
+              expected: "Entra ID data connector should be configured in Sentinel"
+        azure_policies:
+          - policy_name: "Deploy Diagnostic Settings for Azure AD to Log Analytics workspace"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/b1cb4e45-cf63-4a58-b7fe-4a509e6e4023"
+            effect: "DeployIfNotExists"
+        remediation: |
+          Enable the Entra ID data connector:
+            1. Navigate to Microsoft Sentinel > Data connectors.
+            2. Find "Azure Active Directory" and click Connect.
+            3. Enable SignInLogs and AuditLogs.
+
+      - check_id: "F8-DC-003"
+        check_name: "Microsoft Defender for Cloud data connector is configured"
+        description: "Verify that Defender for Cloud alerts are forwarded to Sentinel."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type =~ 'microsoft.securityinsights/dataconnectors'
+            | where kind == 'AzureSecurityCenter'
+            | project name, resourceGroup, subscriptionId, kind
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_sentinel_data_connector_azure_security_center"
+              expected: "Defender for Cloud data connector should be configured in Sentinel"
+            - file_pattern: "**/*.bicep"
+              search: "kind: 'AzureSecurityCenter'"
+              expected: "Defender for Cloud data connector should be configured in Sentinel"
+        azure_policies:
+          - policy_name: "Azure Defender alerts should be forwarded to Azure Sentinel"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2f2f3758-b0cc-4c65-bd7e-03cd8bea8e8e"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable the Defender for Cloud data connector:
+            1. Navigate to Microsoft Sentinel > Data connectors.
+            2. Find "Microsoft Defender for Cloud" and click Connect.
+            3. Select all subscriptions.
+
+  - resource_type: "microsoft.securityinsights/alertrules"
+    relevance: "high"
+    checks:
+      - check_id: "F8-AR-001"
+        check_name: "Analytic rules are defined in Sentinel"
+        description: "Verify that analytic rules (scheduled, Microsoft, and fusion) are configured in Sentinel for threat detection."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type =~ 'microsoft.securityinsights/alertrules'
+            | summarize ruleCount=count() by subscriptionId, resourceGroup
+            | where ruleCount < 10
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_sentinel_alert_rule"
+              expected: "At least 10 analytic rules should be defined in Sentinel"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.SecurityInsights/alertRules"
+              expected: "At least 10 analytic rules should be defined in Sentinel"
+        azure_policies:
+          - policy_name: "Azure Sentinel should have analytics rules configured"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2f2f3758-b0cc-4c65-bd7e-03cd8bea8e8e"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Configure Sentinel analytic rules:
+            1. Navigate to Microsoft Sentinel > Analytics.
+            2. Enable recommended rule templates.
+            3. Create custom scheduled rules for organization-specific detection logic.
+            4. Enable Fusion advanced multistage attack detection.
+            5. Enable Microsoft incident creation rules for each connected data source.
+
+  - resource_type: "microsoft.insights/diagnosticsettings"
+    relevance: "high"
+    checks:
+      - check_id: "F8-DS-001"
+        check_name: "Key resources send diagnostic logs to Sentinel workspace"
+        description: "Verify that critical resource types have diagnostic settings sending logs to the Sentinel Log Analytics workspace."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type in~ ('microsoft.keyvault/vaults',
+                              'microsoft.network/networksecuritygroups',
+                              'microsoft.network/applicationgateways',
+                              'microsoft.network/azurefirewalls',
+                              'microsoft.sql/servers',
+                              'microsoft.containerservice/managedclusters')
+            | project resourceId=id, resourceName=name, resourceType=type, resourceGroup, subscriptionId
+            | join kind=leftouter (
+                DiagnosticSettings
+                | project resourceId=strcat_array(array_slice(split(id, '/'), 0, -4), '/'),
+                          dsName=name, workspaceId=properties.workspaceId
+                | where isnotempty(workspaceId)
+            ) on resourceId
+            | where isempty(dsName)
+            | project resourceName, resourceType, resourceGroup, subscriptionId
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_monitor_diagnostic_setting"
+              expected: "Diagnostic settings should be configured for all critical resources targeting the Sentinel workspace"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.Insights/diagnosticSettings"
+              expected: "Diagnostic settings should be configured for all critical resources targeting the Sentinel workspace"
+        azure_policies:
+          - policy_name: "Deploy Diagnostic Settings for Key Vault to Log Analytics workspace"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/bef3f64c-5290-43b7-85b0-9b254eef4c47"
+            effect: "DeployIfNotExists"
+          - policy_name: "Deploy Diagnostic Settings for Network Security Groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/c9c56ec7-7c09-4006-ad45-a11b1398c122"
+            effect: "DeployIfNotExists"
+        remediation: |
+          Configure diagnostic settings for each critical resource:
+            az monitor diagnostic-settings create --name sentinel-diag \
+              --resource <resourceId> \
+              --workspace <sentinelWorkspaceId> \
+              --logs '[{"categoryGroup":"allLogs","enabled":true}]'
+          Automate via Azure Policy DeployIfNotExists for each resource type.
