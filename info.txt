@@ -1,0 +1,31 @@
+We are from cloud center of excellence(CCoE) team. 
+Within CCOE we have Azure platform team. They prodvide and manage the landing zones.
+Landing zones includes, subscriptoins, virutal networks, devops project, service principal, entra groups. etc
+Then there is customer team, where I cam part of. We help workload teams to get onboarded to cloud and enable them to work in a secure, cost efficient way.
+Finops team provides cost management tooling and reporting
+Security team set the guidelines on how to securily manage the cloud environment.
+Workload teams will get onboarded to cloud. From the azure platform team they will be getting one DTA subscriptoin and one PRD subscription.
+invididual workload users will get contributor rights in DTA subscirption and readder access in prd subscription.
+the service principal that is provided to the workload team, which is ocnfigured in the service connection will have contributor rights to deploy and manage the resources through pipelines.
+All the virutal networks of the workload team as spoke networks that will be peered with the management hub vnet.
+the platform team is responsible for creating and managing the nsg rules and azure firewall policies.
+
+Security team has something called as cloud security framework. it has 26 fundamental controls.
+The problem with this framework is, that it is an abstract text. Say for example "It says all traffic should be encrypted, or all internet access is disabled"
+There is no mapping of how this relates to the specific azure resource. For example what configuration of Azure VM should be enabled/modified to achieve this.
+
+Now the ask is to create a AI Agent, called CSF Agent,  that checks the compliance of the cloud security framework. 
+My opinion is it needs to check at 2 parts, one is on the actual resource in azure portal and the other is in code which is in azure repositories.
+
+How can we design this AI Agent architecture that is robust, secure, cost effecitive and scalable so that it can work with other agents.
+
+It is good to mention that there is an AI team within our organization that is providing the platform. They already have an chat agent lets call it "ACA".
+In order to deliver fast, this CSF agent should make use of this "ACA" chat that will get the end user input and then process the CSF compliance at the backend.
+
+Give me the architecture, requirements, how to feed the data, store the data, how to enable prompt engineering, how to distill the csf abstract text and map it to resources. 
+
+-----
+Create Agent:
+All the azure subscriptions have VNET resource group in this format vneteuwe-bda-dta01-rg  like vnet<servicename>-<env>01-rg. for a particular workload, there is a servicename which refers to this workload. in this case "bda" is the servicename. which is also used in subscription name, like asml-dta01-bda is the subscription name. The subscripton and vnet resource group has environment reference. In this case "dta" is the environment reference. "prd" is the reference for production environment. the 01 after dta or prd denotes how many subscriptions are present in that environment. the vnet rg has vnet as the prefix as in "vneteuwe-bda-dta01-rg". the subscription always has asml as the prefix as in "asml-dta01-bda"
+
+A cloud workload can have dedicated subscription or shared subscription. In dedicated subscription, they will have entire subscription. In shared subscription, they will get a resource group from a shared subscription. This shared subscription will then be owned by CCoE. in a dedicated subscription, a cloud workload will have atleast 1 dta dedicated subscription and 1 dedicated production subscription. In very rare cases, where the workload teams does not need a dta subscription, they they might have only prd dedicated subscription. In all the dedicated subscription, the "Workload ID" tag is set to the workload id of that particular cloud workload. This along with the technical contacts tag "TechnicalContacts" will be inherited to the resource groups. It will not be inherited to the individual resources. Each workload can have 1 or more vnets. these vnets along with the network resources such as nsg or route table  will be placed in a vnet resource group. Even if it is a dedidcated subscription, the vnet resource group will be tagged to azure platform team. so the tags "WorkloadID" and "TechnicalContacts" will be referencing the azure platform team. 
