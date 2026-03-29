@@ -1,0 +1,333 @@
+F1: Ownership for all resources​:
+
+Risk identification (Why)​:
+In case of failure, data leakage or other security incident from a resource, an unknown owner cannot be held responsible, nor can the accountability aspect be addressed properly.​
+In case of increased (or over) spending by a resource or security incident handling, an owner must be notified or involved to act as responsible or accountable entity.​
+
+
+Functional Control Description (What)​:
+The technical owner of cloud resources should be known and enforced through labeling.​
+Identification of IT assets is required to be able to enforce the appropriate security measures and controls for the application, service and/or workload.​
+Register Business Application in the central CMDB.
+
+F2: Security and Compliance Labelling:​
+  
+Risk identification (Why):​
+Unable to enforce the proper security controls due to the disability to identify the business criticality, value and importance ​
+Unauthorized access to application(s), system(s) and resource(s) when inappropriate controls are applied or no controls at all.​
+Sanctions, financial loss or reputation damage due to not complying to legislation and regulations.​
+
+
+Functional Control Description (What)​:
+Labeling of information, application, system, service or other resources to identify the business value and sensitivity based on the Organization classification scheme (knowledge protection program).​
+Labeling of information, application, system, service or other resources to identify security and compliance information based on Organization policies and standards.​
+Identification of IT assets is required to be able to enforce the appropriate security measures and controls for the application, service and/or workload.​
+
+F3: Identity Management​:
+
+Risk identification (Why):​
+Unauthorized accounts (natural users or represented system/application accounts) with no active trust relationship or otherwise known to Organization able to access Organization business information.​
+Access to Orgnaization information and resources by former employees, suppliers with no active relationship anymore.​
+Possible data and/or information leakage.​
+Possible financial gain, competitive advantage.
+
+Functional Control Description (What):​
+Registering and/or synchronization of Identities with Organization IAM processes to provide access to cloud services and workloads.​
+Application(s), Service(s) or Resource(s) access by employees, contractors, customers or suppliers is only allowed whenever a natural person is registered as a digital identity in control of the Organization IAM processes.
+
+F4: Multi-Factor Authentication​:
+
+Risk identification (Why):​
+Incorrect proof of accounts with possible impersonation.​
+Possible data and/or information leakage.​
+Possible financial gain, competitive advantage.
+
+Functional Control Description (What)​:
+Always require multifactor in terms of extra means and/or methods.​
+Additional factor is required when access from outside the Organization premises / network.
+
+F5: Access Management​:
+
+Risk identification (Why):​
+Unauthorized access to Organization information by end users not allowed to access this based on excessive permissions and uncontrolled authorization assignments.​
+Anonymous access to Organization information in uncontrolled, unknown way.​
+Exfiltrate intellectual property, financial information or other business information.​
+Possible leakage of intellectual property, competitive advantage.​
+
+Functional Control Description (What)​:
+Access to cloud workload(s), service(s) and/or data/information requires a registered digital identity and controlled and approved access authorizations.​
+Access is granted on a right to know basis through a formal process with request and approval of responsible line manager(s) and/or business/information owner.​
+Access is granted from a trusted device and/or location​
+Period review of assigned access to end users (frequency: at least annually)​
+Apply least privilege on all users and service accounts/Managed identities that manage the cloud services​
+
+F6: Privileged Access Management:
+
+Risk identification (Why)​:
+Excessive administrative permissions in an uncontrolled way.​
+Identity Theft of administrative user accounts with standing admin permissions, could lead to information exfiltration, theft. ​
+Standing permissions (permanently assigned administrative permissions) which might result in unauthorized access when identity account is compromised.​
+
+
+Functional Control Description (What)​:
+Grant ‘Just In Time’ administrative roles to avoid standing permissions, for a limited time period on the actual scope of resources as required for the activity to perform.​
+Access to cloud workloads, services and resources require properly assigned roles and permissions based on least-privileged.​
+Process the assignment & approval for privileged authorizations in a controlled and auditable way.​
+Perform semi-annual or annual review of assigned administrative authorizations.​
+
+F7: Security Posture Management :
+
+Risk identification (Why):​
+Excessive administrative permissions in an uncontrolled way.​
+Identity Theft of administrative user accounts with standing admin permissions, could lead to information exfiltration, theft. ​
+Standing permissions (permanently assigned administrative permissions) which might result in unauthorized access when identity account is compromised.​
+
+
+Functional Control Description (What)​:
+Provide Security Management solution to build policy and compliance controls.​
+Provide Cloud Security Posture Management (CSPM) capabilities.​
+Access configurations and provide recommendations​
+Detect potential threats and vulnerabilities.​
+
+
+F8: Integrated SIEM Solution​​​:
+
+Risk identification (Why):​
+No detection, insight and oversight of security incidents and events.​
+Possible data and/or information leakage.​
+Not detecting anomalous behavior, unexpected changes in resources and/or configuration of resources.​
+Possible resource misuse, denial of service or take control over resources.​
+Possible financial lost due to extensive resources usage.​
+
+
+Functional Control Description (What):​
+Provide SIEM solution that leverages Artificial Intelligence (AI) and CSP Threat Intelligence for analyses​
+Security Information and Events are stored and correlated within the CSP platform.​
+Detect and respond 24/7 acting on security events, indicators of attacks (IoA) and indicators of compromise (IoC).​
+Align with Security Incident Response Team for automated remediation controls and playbooks.​
+
+F9: Audit and logging​:
+
+Risk identification (Why):​
+Not detecting unauthorized changes in resources and/or configuration of resources.​
+Inability to do forensic investigation related to criminal prosecution and liability claims in case of security incident, malfunctioning of resources.​
+Unable to provide logging in case of internal and or external audit activities.​
+
+Functional Control Description (What)​:
+Enable audit logging on platform activity for traceability of changes and modifications through the CSP control plane.​
+Per workload a review must be done for workload specific monitoring use cases which includes a verification if all logs are available to perform monitoring. If not the case additional logs must be onboarded to Organization (security) logging tools.​
+
+F10: Review Service and Component Life Cycle Management​:
+ 
+Risk identification (Why):​
+New services terms, conditions from CSP can impact security risks from Organization perspective.​
+New services/functionality from CSP can impact Organization corporate compliance for privacy, law and industry regulation.​
+Potential possible fines, financial losses.​
+
+Functional Control Description (What):​
+Periodically review and assess CSP platform components, services and resources within your solution​
+Periodically review and assess CSP components, services and/or resources released by the CSP to improve Organization security posture and capabilities​
+Ensure only supported software and resource versions are used​
+
+F11: Access Management Applications​:
+ 
+Risk identification (Why)​:
+Manual creation/modification of account management in applications, not according Join/Move/Leave processes and password policies.​
+Uncontrolled (or unknown) identities in third party applications.​
+Unauthorized access to Organization information, resources through accounts no longer related to natural persons active within Organization​
+Misuse of accounts can expose or exfiltrate data containing Organization IP.​
+
+Functional Control Description (What)​:
+Provisioning process of identity information towards cloud native applications.​
+Access to application data must use the foundational Identity and Access Management controls for identity provisioning in line with the formal joiner, mover, leaver processes.​
+
+F12: Encrypt Data at Rest (service level):​
+
+Risk identification (Why)​:
+Unauthorized or uncontrolled disclosure of data and/or business information or intellectual property.​
+Possible financial gain, competitive advantage.​
+
+Functional Control Description (What)​:
+Encryption of data in rest (service level) applied on service level of cloud service provider.​
+Keys/Secrets used to encrypt are provided and managed by the cloud service provider.​
+
+F13: Simplify and harden secure network configuration​:
+ 
+Risk identification (Why):​
+Utilize information systems or networks infrastructure to collect or sniff network traffic​
+Intercept or eavesdrop on sessions to capture, manipulate or replay messages between entities​
+
+Functional Control Description (What)​:
+Deny ports, protocols, source and IPs by default, permit through a formal approved process ​
+Monitor and audit network configuration rules on usage and necessity and decommission unused/unnecessary rules​
+Block and disable high-risk protocols (e.g., RDP, SSH, SMB, Kerberos)​
+All network traffic must be encrypted with secure protocols (e.g., HTTPS, TLS, SSH, SFTP)​
+
+F14: Network controls on private facing cloud services​:
+
+Risk identification (Why)​:
+Unnecessary and uncontrolled access to Organization on-prem datacenters​
+Exposure of information and data through application ports.​
+Misuse of exposed service endpoints to exfiltrate data or provide entrance for more sophisticated attacks.​
+Information Leakage through misconfigured web service or vulnerability in web application.​
+Risk of business continuity or impacting business processes.​
+
+Functional Control Description (What)​:
+Disable or restrict access from the public network by establishing private access points.​
+Use private connections for secure communication between different networks, such as other public cloud environments and on-premises infrastructure​
+Separate the public and private DNS resolution​
+
+F15: Network controls on internet facing cloud services​:
+
+Risk identification (Why)​:
+Unnecessary exposure of communication port(s) and service(s) of CSP public service endpoints for unknown sources. ​
+Exposure of information and data through public application ports.​
+Misuse of exposed service endpoints to exfiltrate data or provide entrance for more sophisticated attacks.​
+Risk of unavailability of mission and/or business critical information resources, storage and/or application instances or services due to external attacks (DOS,DDOS).​
+
+Functional Control Description (What)​:
+Deploy a firewall to perform advanced filtering (e.g., DDoS protection, WAF, Bot Protection) on network traffic to and from external networks.​
+Block known bad IP and FQDN addresses. ​
+Separate the public and private DNS resolution​
+
+F16: Network segmentation boundaries​:
+ 
+Risk identification (Why)​:
+Uncontrolled data transfer to internet and CSP public.​
+Retrieve data from untrusted, unsafe location.​
+Exfiltrate data or provide entrance for sophisticated attacks.​
+Incorrect isolation of data types such as acceptance and production data​
+Potential lateral movement due to incorrect isolation of systems and services​
+
+Functional Control Description (What)​:
+Restrict and monitor network traffic between internal resources using network controls​
+Deploy resources within the workload network boundary ​
+
+F17: Secure service authentication:​
+ 
+Risk identification (Why):​
+Uncontrolled usage of service accounts and risk of unauthorized access. ​
+Insecure information exchange between services could lead to ‘man-in-the-middle’ information theft, exposure or leakage​
+Inappropriate password change or key rotation by manual procedures and processes.​
+Possible data and/or information leakage.​
+Possible financial gain, competitive advantage.​
+
+Functional Control Description (What)​:
+Use Cloud Native provided identity for service to service authentication including Key Rotation capability.​
+Use Organization controlled identities for service to service authentication that do not support cloud native provided identities. Includes: central registration, manage and usage of access keys and key rotation.​
+
+F18: Patch management:​
+ 
+Risk identification (Why):​
+Risk of misuse of known application or system vulnerabilities to exfiltrate information.​
+Risk of unavailability of mission and/or business critical information resources, storage and/or application instances or services.​
+
+Functional Control Description (What)​:
+Operating system, server applications, containers and PaaS services must be patched/upgraded to the latest security updates.​
+Ensure that patches are consistently applied.​
+Ensure that critical patches are mitigated according to the (emergency) patch process.​
+Operating system and server application must be supported by the vendor.
+
+F19: Endpoint detection & response​:
+ 
+Risk identification (Why):​
+Risk of unauthorized access, intrusions, data leaks, unavailability or other attacks due to virus, malware or other untrusted known applications or components.​
+
+Functional Control Description (What)​:
+All components must have Organization EDR installed and maintained as provided by the SIRT. PaaS solutions supporting Threat Protection should have this protection enabled.​
+Detect and prevent ransomware, file-less and other non-conventional attacks through behavior based, signature based and on-demand scans of filesystem and processes​
+Real-time scanning and on access protection with daily signature updates​
+Centralized real-time visibility on security posture and significant and emerging threats​
+Utilize cloud-supported intelligence, machine learning and pattern recognition to detect and prevent malicious or unwanted behavior​
+
+F20: Vulnerability Management:
+
+Risk identification (Why)​:
+Risk of unauthorized access, intrusions, data leaks, unavailability or other attacks due to known vulnerabilities on Organization assets.​
+
+Functional Control Description (What)​:
+Assets (i.e., OS, middleware, software components, open-source packages) must be automatically scanned for known vulnerabilities and misconfigurations at deployment and during lifespan of a service​
+Vulnerability scans must be performed from different potential attack surfaces (Outside-In / Inside-In)​
+Must be following and integrating into Organization vulnerability management process​
+Scans will be performed at least on a monthly basis​
+Vulnerability management process should take asset exposure and vulnerability maturity into account according to the Organization vulnerability management operating procedure​
+Unused software components and libraries must be removed from the solution to prevent vulnerabilities on unused components leading to compromised environments​
+
+F21: Component Hardening :
+
+Risk identification (Why)​:
+Risk of unauthorized access, intrusions, data leaks, unavailability or other attacks due to vulnerabilities in not used services on Organization assets​
+Risk of unauthorized access, intrusions, data leaks, unavailability or other attacks due to misconfiguration of Organization assets​
+
+Functional Control Description (What)​:
+For PaaS services both the CSP as well as the cloud consumer is responsible for implementing hardening controls through configuration settings.​
+Operating systems and application services must be hardened using Organization hardening standards​
+If no Organization hardening standard is available, the CIS benchmark must be applied​
+When no Organization hardening standard is available industry / vendor specific hardening guidelines must be implemented and documented in the solution design.​
+Services and configurations must be monitored for drift from established baselines​
+
+F22: Software Supply Chain​:
+ 
+Risk identification (Why):​
+Submitting unauthorized changes to source repository​
+Compromise source repository, build process or software package​
+Data leakage or resource take-over through use of compromised dependency​
+
+Functional Control Description (What)​:
+Apply secure and hardened configure software supply chain tools (e.g., Git)​
+Implement pre-deployment security checks on infrastructure-as-code and build artifacts and dependencies (i.e., policy-as-code, SAST, SCA, secret scanning)​
+Implement best practices in the source, build and package processes (version control and history, fork control, branch protection, build configuration and release protection and isolate build processes)​
+
+F23: Secure Key and Secret Management​:
+ 
+Risk identification (Why)​:
+Risk of unauthorized exposure of information resources, storage and/or application instances, services.​
+Risk of hardcoded secrets embedded in code such as git repositories exposing systems to unauthorized access​
+
+Functional Control Description (What)​:
+Cloud native solution to manage Storage Access Keys, General access keys, certificates in use for high sensitive information or high sensitive application and/or interfaces.​
+Key Manager solution with use of cloud service provider keys, certificates and key rotation etc.​
+Optional Hardware Security Module (HSM) usage​
+Ensure no hardcoded secrets or keys are stored in repositories or in applications​
+
+F24: High availability​:
+ 
+Risk identification (Why):​
+Outage due to patch cycle or datacenter rack failures by the cloud service provider.​
+Loss of Service or Virtual Machine instances or unavailability in a specific zone or region.​
+Failure of an CSP zone in a specific region.​
+Dedicated connectivity between Organization on-prem and a cloud region is not available.​
+The failure or loss of a complete cloud region.​
+
+Functional Control Description (What)​:
+
+Group component with the same functionality for redundancy and define migration behavior / procedures.​
+Use a load balancer to distribute application traffic across a pool of identical VMs.​
+Apply data replication between zones for components that require multi region availability.​
+Apply redundancy of resource throughout the full chain of components and data across zones in a region.​
+Apply secondary network path or cloud region for fallback purposes.​
+Apply premium Distributed Denial of Services (DDoS) protection for resources accessible over the internet.​
+
+F25: Backup management​:
+ 
+Risk identification (Why)​:
+Accidental data modification, deletion or malware.​
+Application malfunctioning or crash due to software corruption or other means.​
+
+Functional Control Description (What)​:
+Enable scheduled, periodic backups.​
+Add an additional step that needs to be taken before deletion can take place.​
+Backup databases to external storage.​
+Define and practices restore procedures and processes.
+
+F26: Disaster recovery:
+ 
+Risk identification (Why):​
+(Accidental) delete data, virtual machine instances, cluster(s), containers, databases or disk modifications, due to deletion, corruption or malware.​
+
+Functional Control Description (What)​:
+Define the impact of unavailability for a solution and the corresponding Recovery Point Objective (RPO) and Recovery time Objective (RTO). ​
+Define Recovery solution, procedures with defined RPO/RTO ​
+Periodically test the procedures.​
+
+​​
