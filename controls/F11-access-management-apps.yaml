@@ -1,0 +1,413 @@
+control_id: "F11"
+control_name: "Access Management Applications"
+control_family: "Identity & Access Management"
+severity: "high"
+
+description: |
+  Identity provisioning to cloud-native applications must use foundational IAM controls
+  aligned with Joiner/Mover/Leaver (JML) processes. All application authentication must
+  be federated through Entra ID (Azure AD) to ensure centralized identity governance,
+  single sign-on, conditional access enforcement, and automated de-provisioning when
+  personnel leave or change roles.
+
+  Environment conventions:
+    - Subscription naming: asm-{env}01-{servicename}
+    - VNet RG naming: vneteuwe-{servicename}-{env}01-rg
+    - Hub-spoke topology: platform team manages NSGs, firewall, and shared networking.
+    - All user-facing applications must integrate with Entra ID for SSO.
+    - Service-to-service authentication should use managed identities where possible.
+
+risk_description: |
+  Manual account creation outside JML processes leads to uncontrolled identities in
+  third-party and cloud-native applications. Accounts may persist after personnel leave
+  the organization, granting unauthorized access. Without centralized identity governance,
+  there is no visibility into who has access to what. Compromised local accounts cannot
+  be revoked through conditional access policies or MFA enforcement. Audit trails for
+  access are fragmented across individual applications rather than centralized in
+  Entra ID sign-in logs.
+
+applicable_resource_types:
+  - resource_type: "microsoft.web/sites"
+    relevance: "high"
+    rationale: "App Services and Function Apps are primary web-facing workloads that must enforce Entra ID authentication."
+    checks:
+      - check_id: "F11-WEB-001"
+        check_name: "App Service must have authentication enabled"
+        description: "App Services must have the Authentication/Authorization feature (EasyAuth) enabled to enforce identity verification."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.web/sites'
+            | where kind !contains 'functionapp'
+            | extend authSettings = parse_json(properties.siteConfig.siteAuthEnabled)
+            | where isnull(authSettings) or authSettings == false
+            | project name, resourceGroup, subscriptionId, kind, location
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'auth_settings_v2\s*\{'
+              expected: "auth_settings_v2 block must be present on azurerm_linux_web_app or azurerm_windows_web_app"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.Web/sites/config@.*'authsettingsV2'"
+              expected: "authsettingsV2 config resource must be defined for the web app"
+        azure_policies:
+          - policy_name: "App Service apps should have authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/95bccee9-a7f8-4bec-9ee9-62c3473701a6"
+            effect: "AuditIfNotExists"
+          - policy_name: "Function apps should have authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/c75248c1-ea1d-4a9c-8fc9-29a6aabd5da8"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable authentication on the App Service and configure Entra ID as the identity provider.
+
+          Terraform:
+            resource "azurerm_linux_web_app" "example" {
+              auth_settings_v2 {
+                auth_enabled           = true
+                require_authentication = true
+                default_provider       = "azureactivedirectory"
+                active_directory_v2 {
+                  client_id            = var.entra_app_client_id
+                  tenant_auth_endpoint = "https://login.microsoftonline.com/${var.tenant_id}/v2.0"
+                }
+              }
+            }
+
+          Bicep:
+            resource authSettings 'Microsoft.Web/sites/config@2022-09-01' = {
+              name: 'authsettingsV2'
+              parent: webApp
+              properties: {
+                globalValidation: {
+                  requireAuthentication: true
+                  unauthenticatedClientAction: 'RedirectToLoginPage'
+                }
+                identityProviders: {
+                  azureActiveDirectory: {
+                    enabled: true
+                    registration: {
+                      clientId: entraAppClientId
+                      openIdIssuer: 'https://login.microsoftonline.com/${tenantId}/v2.0'
+                    }
+                  }
+                }
+              }
+            }
+
+      - check_id: "F11-WEB-002"
+        check_name: "App Service must use Entra ID as identity provider"
+        description: "When authentication is enabled, the identity provider must be Entra ID (Azure Active Directory), not local accounts or other providers."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.web/sites/config'
+            | where name endswith '/authsettingsV2'
+            | extend aadEnabled = parse_json(properties.identityProviders.azureActiveDirectory.enabled)
+            | where isnull(aadEnabled) or aadEnabled == false
+            | project id, name, resourceGroup, subscriptionId
+            | order by subscriptionId asc, resourceGroup asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'active_directory_v2\s*\{'
+              expected: "active_directory_v2 block must be present inside auth_settings_v2"
+            - file_pattern: "**/*.bicep"
+              search: "azureActiveDirectory"
+              expected: "azureActiveDirectory identity provider must be configured in authsettingsV2"
+        azure_policies:
+          - policy_name: "App Service apps should use managed identity"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2b9ad585-36bc-4615-b300-fd4435808332"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Configure the Entra ID identity provider in the App Service authentication settings.
+          Register an application in Entra ID and use its client ID in the auth configuration.
+          Ensure the app registration has the correct redirect URIs configured.
+
+      - check_id: "F11-WEB-003"
+        check_name: "Function App must have authentication enabled"
+        description: "Function Apps must have authentication enabled to prevent anonymous invocation of HTTP-triggered functions."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.web/sites'
+            | where kind contains 'functionapp'
+            | extend authSettings = parse_json(properties.siteConfig.siteAuthEnabled)
+            | where isnull(authSettings) or authSettings == false
+            | project name, resourceGroup, subscriptionId, kind, location
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'auth_settings_v2\s*\{'
+              expected: "auth_settings_v2 block must be present on azurerm_linux_function_app or azurerm_windows_function_app"
+            - file_pattern: "**/*.bicep"
+              search: "authsettingsV2"
+              expected: "authsettingsV2 must be configured for Function App resources"
+        azure_policies:
+          - policy_name: "Function apps should have authentication enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/c75248c1-ea1d-4a9c-8fc9-29a6aabd5da8"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable authentication on the Function App. For HTTP-triggered functions that serve
+          as APIs, configure Entra ID authentication. For event-triggered functions, ensure
+          the triggering service uses managed identity.
+
+  - resource_type: "microsoft.apimanagement/service"
+    relevance: "high"
+    rationale: "API Management is the gateway for APIs and must enforce Entra ID authentication for management plane and optionally for API consumers."
+    checks:
+      - check_id: "F11-APIM-001"
+        check_name: "API Management must use Entra ID for portal authentication"
+        description: "The API Management developer portal and management plane must be integrated with Entra ID."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.apimanagement/service'
+            | extend portalSignIn = properties.portalSignIn
+            | project name, resourceGroup, subscriptionId, location, sku=sku.name
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'sign_in\s*\{'
+              expected: "sign_in block should be configured on azurerm_api_management resource"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.ApiManagement/service"
+              expected: "API Management resource should have identity and portal auth configured"
+        azure_policies:
+          - policy_name: "API Management should use a virtual network"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/ef619a2c-cc4d-4d03-b2ba-8c94a834d85b"
+            effect: "Audit"
+        remediation: |
+          Configure Entra ID as the identity provider for the API Management developer portal
+          and enforce OAuth 2.0 or OpenID Connect validation policies on APIs.
+
+          Terraform:
+            resource "azurerm_api_management" "example" {
+              sign_in {
+                enabled = true
+              }
+              sign_up {
+                enabled = false  # Disable self-service sign-up; use Entra ID
+                terms_of_service {
+                  enabled          = true
+                  consent_required = true
+                }
+              }
+            }
+
+      - check_id: "F11-APIM-002"
+        check_name: "API Management APIs should have authentication policies"
+        description: "APIs exposed through API Management should enforce JWT validation against Entra ID tokens."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.apimanagement/service/apis'
+            | project name, resourceGroup, subscriptionId, apiId=properties.apiId
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'validate-jwt'
+              expected: "validate-jwt policy must be present in API Management policy XML"
+            - file_pattern: "**/*.xml"
+              search: '<validate-jwt'
+              expected: "validate-jwt inbound policy must be defined for APIs"
+        azure_policies: []
+        remediation: |
+          Add a validate-jwt inbound policy to each API or at the product/global level:
+
+            <inbound>
+              <validate-jwt header-name="Authorization" failed-validation-httpcode="401"
+                            failed-validation-error-message="Unauthorized">
+                <openid-config url="https://login.microsoftonline.com/{tenant-id}/v2.0/.well-known/openid-configuration" />
+                <required-claims>
+                  <claim name="aud" match="all">
+                    <value>{api-client-id}</value>
+                  </claim>
+                </required-claims>
+              </validate-jwt>
+            </inbound>
+
+  - resource_type: "microsoft.app/containerapps"
+    relevance: "high"
+    rationale: "Container Apps hosting web workloads must integrate with Entra ID to prevent unauthorized access."
+    checks:
+      - check_id: "F11-CA-001"
+        check_name: "Container App must have Entra ID authentication configured"
+        description: "Container Apps with external ingress must have Entra ID authentication configured via the built-in authentication feature."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.app/containerapps'
+            | extend ingressExternal = properties.configuration.ingress.external
+            | where ingressExternal == true
+            | project name, resourceGroup, subscriptionId, location,
+                     ingressFqdn=properties.configuration.ingress.fqdn
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'identity\s*\{[^}]*type\s*=\s*"SystemAssigned"'
+              expected: "Container App should have SystemAssigned managed identity for Entra ID integration"
+            - file_pattern: "**/*.bicep"
+              search: "identity:"
+              expected: "Container App should have managed identity configured"
+        azure_policies:
+          - policy_name: "Container App should have managed identity enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/b874ab2d-72dd-47f1-8cb5-4a306478a4e7"
+            effect: "Audit"
+        remediation: |
+          Enable the built-in authentication feature for the Container App and configure
+          Entra ID as the identity provider. Alternatively, implement authentication in
+          the application code using MSAL libraries with Entra ID.
+
+          Terraform:
+            resource "azurerm_container_app" "example" {
+              identity {
+                type = "SystemAssigned"
+              }
+              ingress {
+                external_enabled = true
+                target_port      = 8080
+              }
+            }
+
+  - resource_type: "microsoft.cognitiveservices/accounts"
+    relevance: "high"
+    rationale: "Cognitive Services and Azure OpenAI accounts must use Entra ID authentication instead of API keys to ensure proper access governance."
+    checks:
+      - check_id: "F11-COG-001"
+        check_name: "Cognitive Services must disable local authentication (API keys)"
+        description: "Cognitive Services accounts should disable local authentication and require Entra ID tokens for all API calls."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.cognitiveservices/accounts'
+            | where properties.disableLocalAuth != true
+            | project name, resourceGroup, subscriptionId, kind,
+                     disableLocalAuth=properties.disableLocalAuth
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'local_auth_enabled\s*=\s*false'
+              expected: "local_auth_enabled must be set to false on azurerm_cognitive_account"
+            - file_pattern: "**/*.bicep"
+              search: "disableLocalAuth: true"
+              expected: "disableLocalAuth must be set to true on Cognitive Services account"
+        azure_policies:
+          - policy_name: "Cognitive Services accounts should disable local authentication methods"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/71ef260a-8f18-47b7-abcb-62d0673d94dc"
+            effect: "Audit"
+        remediation: |
+          Disable local authentication on the Cognitive Services account and use Entra ID
+          RBAC (e.g., Cognitive Services User role) for access.
+
+          Terraform:
+            resource "azurerm_cognitive_account" "example" {
+              local_auth_enabled = false
+              identity {
+                type = "SystemAssigned"
+              }
+            }
+
+          Bicep:
+            resource cognitiveAccount 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+              properties: {
+                disableLocalAuth: true
+              }
+              identity: {
+                type: 'SystemAssigned'
+              }
+            }
+
+  - resource_type: "microsoft.containerregistry/registries"
+    relevance: "high"
+    rationale: "Container registries store container images and must use Entra ID authentication to prevent unauthorized image pulls and pushes."
+    checks:
+      - check_id: "F11-ACR-001"
+        check_name: "Container Registry must disable admin user"
+        description: "The admin user on Azure Container Registry must be disabled; authentication should use Entra ID identities or managed identities."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.containerregistry/registries'
+            | where properties.adminUserEnabled == true
+            | project name, resourceGroup, subscriptionId, sku=sku.name,
+                     adminUserEnabled=properties.adminUserEnabled
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'admin_enabled\s*=\s*false'
+              expected: "admin_enabled must be set to false on azurerm_container_registry"
+            - file_pattern: "**/*.bicep"
+              search: "adminUserEnabled: false"
+              expected: "adminUserEnabled must be set to false on container registry"
+        azure_policies:
+          - policy_name: "Container registries should have local admin account disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/dc921057-6b28-4fbe-9b83-f7bec05db6c2"
+            effect: "Audit"
+        remediation: |
+          Disable the admin user on the Container Registry and use Entra ID RBAC
+          (AcrPull, AcrPush roles) or managed identities for authentication.
+
+          Terraform:
+            resource "azurerm_container_registry" "example" {
+              admin_enabled = false
+              identity {
+                type = "SystemAssigned"
+              }
+            }
+
+          Bicep:
+            resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+              properties: {
+                adminUserEnabled: false
+              }
+            }
+
+      - check_id: "F11-ACR-002"
+        check_name: "Container Registry should use token-based or Entra ID authentication"
+        description: "Pulls from Container Registry should use Entra ID service principals, managed identities, or repository-scoped tokens."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            resources
+            | where type == 'microsoft.containerregistry/registries'
+            | project name, resourceGroup, subscriptionId, sku=sku.name,
+                     adminUserEnabled=properties.adminUserEnabled,
+                     anonymousPullEnabled=properties.anonymousPullEnabled
+            | order by subscriptionId asc, resourceGroup asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'anonymous_pull_enabled\s*=\s*false'
+              expected: "anonymous_pull_enabled should be false (or omitted, as false is default)"
+            - file_pattern: "**/*.bicep"
+              search: "anonymousPullEnabled"
+              expected: "anonymousPullEnabled should be false or omitted"
+        azure_policies:
+          - policy_name: "Container registries should have anonymous authentication disabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/9f2dea28-e834-476c-99c5-3507b4728395"
+            effect: "Audit"
+        remediation: |
+          Ensure anonymous pull is disabled and configure AKS or other consumers to
+          authenticate using managed identity with the AcrPull role assignment.
+
+          Terraform:
+            resource "azurerm_role_assignment" "aks_acr_pull" {
+              scope                = azurerm_container_registry.example.id
+              role_definition_name = "AcrPull"
+              principal_id         = azurerm_kubernetes_cluster.example.kubelet_identity[0].object_id
+            }

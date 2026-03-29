@@ -1,0 +1,374 @@
+control_id: "F7"
+control_name: "Security Posture Management"
+control_family: "Security Operations"
+severity: "high"
+description: |
+  Provide a comprehensive Cloud Security Posture Management (CSPM) solution to
+  continuously assess and improve the security posture of Azure environments.
+  Enforce policy and compliance controls across all subscriptions and detect
+  threats and vulnerabilities through Microsoft Defender for Cloud.
+risk_description: |
+  Excessive permissions, identity theft of admin accounts, and standing privileged
+  access can go undetected without continuous security posture assessment. Lack of
+  centralized security management leads to configuration drift, unpatched
+  vulnerabilities, and non-compliance with regulatory requirements. Without threat
+  detection, attackers can persist in the environment unnoticed.
+applicable_resource_types:
+  - resource_type: "microsoft.security/pricings"
+    relevance: "high"
+    checks:
+      - check_id: "F7-SP-001"
+        check_name: "Microsoft Defender for Servers is enabled"
+        description: "Verify that Microsoft Defender for Servers plan is enabled on all subscriptions."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'VirtualMachines'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"VirtualMachines"'
+              expected: "tier should be set to 'Standard' for Defender for Servers"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'VirtualMachines'"
+              expected: "pricingTier should be 'Standard' for Defender for Servers"
+        azure_policies:
+          - policy_name: "Azure Defender for servers should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/4da35fc9-c9e7-4960-aec9-797fe7d9051d"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for Servers:
+            az security pricing create --name VirtualMachines --tier Standard
+          Or via Terraform:
+            resource "azurerm_security_center_subscription_pricing" "servers" {
+              tier          = "Standard"
+              resource_type = "VirtualMachines"
+            }
+
+      - check_id: "F7-SP-002"
+        check_name: "Microsoft Defender for Storage is enabled"
+        description: "Verify that Microsoft Defender for Storage plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'StorageAccounts'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"StorageAccounts"'
+              expected: "tier should be set to 'Standard' for Defender for Storage"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'StorageAccounts'"
+              expected: "pricingTier should be 'Standard' for Defender for Storage"
+        azure_policies:
+          - policy_name: "Microsoft Defender for Storage should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/640d2586-54d2-465f-877f-9ffc1d2109f4"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for Storage:
+            az security pricing create --name StorageAccounts --tier Standard
+
+      - check_id: "F7-SP-003"
+        check_name: "Microsoft Defender for Key Vault is enabled"
+        description: "Verify that Microsoft Defender for Key Vault plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'KeyVaults'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"KeyVaults"'
+              expected: "tier should be set to 'Standard' for Defender for Key Vault"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'KeyVaults'"
+              expected: "pricingTier should be 'Standard' for Defender for Key Vault"
+        azure_policies:
+          - policy_name: "Azure Defender for Key Vault should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/0e6763cc-5078-4e64-889d-ff4d6a59f94e"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for Key Vault:
+            az security pricing create --name KeyVaults --tier Standard
+
+      - check_id: "F7-SP-004"
+        check_name: "Microsoft Defender for SQL is enabled"
+        description: "Verify that Microsoft Defender for Azure SQL plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'SqlServers'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"SqlServers"'
+              expected: "tier should be set to 'Standard' for Defender for SQL"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'SqlServers'"
+              expected: "pricingTier should be 'Standard' for Defender for SQL"
+        azure_policies:
+          - policy_name: "Azure Defender for Azure SQL Database servers should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/7fe3b40f-802b-4f65-b5cd-43624b220838"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for SQL:
+            az security pricing create --name SqlServers --tier Standard
+
+      - check_id: "F7-SP-005"
+        check_name: "Microsoft Defender for App Service is enabled"
+        description: "Verify that Microsoft Defender for App Service plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'AppServices'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"AppServices"'
+              expected: "tier should be set to 'Standard' for Defender for App Service"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'AppServices'"
+              expected: "pricingTier should be 'Standard' for Defender for App Service"
+        azure_policies:
+          - policy_name: "Azure Defender for App Service should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/2913021d-f2fd-4f3d-b958-22354e2bdbcb"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for App Service:
+            az security pricing create --name AppServices --tier Standard
+
+      - check_id: "F7-SP-006"
+        check_name: "Microsoft Defender for Containers is enabled"
+        description: "Verify that Microsoft Defender for Containers plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'Containers'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"Containers"'
+              expected: "tier should be set to 'Standard' for Defender for Containers"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'Containers'"
+              expected: "pricingTier should be 'Standard' for Defender for Containers"
+        azure_policies:
+          - policy_name: "Microsoft Defender for Containers should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/1c988dd6-ade4-430f-a608-2a3e5b0a6d38"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for Containers:
+            az security pricing create --name Containers --tier Standard
+
+      - check_id: "F7-SP-007"
+        check_name: "Microsoft Defender for Resource Manager is enabled"
+        description: "Verify that Microsoft Defender for Resource Manager plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'Arm'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"Arm"'
+              expected: "tier should be set to 'Standard' for Defender for Resource Manager"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'Arm'"
+              expected: "pricingTier should be 'Standard' for Defender for Resource Manager"
+        azure_policies:
+          - policy_name: "Azure Defender for Resource Manager should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/c3d20c29-b36d-48fe-808b-99a87530ad99"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for Resource Manager:
+            az security pricing create --name Arm --tier Standard
+
+      - check_id: "F7-SP-008"
+        check_name: "Microsoft Defender for DNS is enabled"
+        description: "Verify that Microsoft Defender for DNS plan is enabled."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/pricings'
+            | where name == 'Dns'
+            | where properties.pricingTier != 'Standard'
+            | project subscriptionId, name, pricingTier=properties.pricingTier
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'resource_type\s*=\s*"Dns"'
+              expected: "tier should be set to 'Standard' for Defender for DNS"
+            - file_pattern: "**/*.bicep"
+              search: "name: 'Dns'"
+              expected: "pricingTier should be 'Standard' for Defender for DNS"
+        azure_policies:
+          - policy_name: "Azure Defender for DNS should be enabled"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/bdc59948-5574-49b3-bb91-76b7c986428d"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable Microsoft Defender for DNS:
+            az security pricing create --name Dns --tier Standard
+
+  - resource_type: "microsoft.security/securitycontacts"
+    relevance: "high"
+    checks:
+      - check_id: "F7-SC-001"
+        check_name: "Security contacts are configured"
+        description: "Verify that security contact email and notification settings are configured in Microsoft Defender for Cloud."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/securitycontacts'
+            | where properties.emails == '' or isnull(properties.emails)
+            | project subscriptionId, name, emails=properties.emails
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_security_center_contact"
+              expected: "Security contact resource must exist with email and alert notifications enabled"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.Security/securityContacts"
+              expected: "Security contact resource must exist with email and alert notifications enabled"
+        azure_policies:
+          - policy_name: "Subscriptions should have a contact email address for security issues"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/4f4f78b8-e367-4b10-a341-d9a4ad5cf1c7"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Configure security contacts:
+            az security contact create --name default --email security-team@company.com \
+              --alert-notifications on --alerts-to-admins on
+          Or via Terraform:
+            resource "azurerm_security_center_contact" "main" {
+              email               = "security-team@company.com"
+              alert_notifications = true
+              alerts_to_admins    = true
+            }
+
+  - resource_type: "microsoft.security/autoProvisioningSettings"
+    relevance: "high"
+    checks:
+      - check_id: "F7-AP-001"
+        check_name: "Auto-provisioning of monitoring agent is enabled"
+        description: "Verify that auto-provisioning of the Log Analytics agent or Azure Monitor Agent is enabled for VMs."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/autoprovisioningsettings'
+            | where name == 'default'
+            | where properties.autoProvision != 'On'
+            | project subscriptionId, name, autoProvision=properties.autoProvision
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'auto_provision\s*=\s*"Off"'
+              expected: "auto_provision should be 'On' for security monitoring"
+            - file_pattern: "**/*.bicep"
+              search: "autoProvision: 'Off'"
+              expected: "autoProvision should be 'On' for security monitoring"
+        azure_policies:
+          - policy_name: "Auto provisioning of the Log Analytics agent should be enabled on your subscription"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/475aae12-b88a-4572-8b36-9b712b2b3a17"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Enable auto-provisioning:
+            az security auto-provisioning-setting update --name default --auto-provision On
+
+  - resource_type: "microsoft.authorization/policyassignments"
+    relevance: "high"
+    checks:
+      - check_id: "F7-PA-001"
+        check_name: "Azure Security Benchmark policy initiative is assigned"
+        description: "Verify that the Azure Security Benchmark (ASB) or Microsoft Cloud Security Benchmark initiative is assigned at subscription or management group scope."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            PolicyResources
+            | where type == 'microsoft.authorization/policyassignments'
+            | where properties.policyDefinitionId contains '1f3afdf9-d0c9-4c3d-847f-89da613e70a8'
+                 or properties.displayName contains 'Microsoft cloud security benchmark'
+                 or properties.displayName contains 'Azure Security Benchmark'
+            | project subscriptionId, name, displayName=properties.displayName,
+                      scope=properties.scope
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_subscription_policy_assignment"
+              expected: "Azure Security Benchmark initiative should be assigned"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.Authorization/policyAssignments"
+              expected: "Azure Security Benchmark initiative should be assigned"
+        azure_policies:
+          - policy_name: "Microsoft cloud security benchmark"
+            policy_id: "/providers/Microsoft.Authorization/policySetDefinitions/1f3afdf9-d0c9-4c3d-847f-89da613e70a8"
+            effect: "Audit"
+        remediation: |
+          Assign the Microsoft Cloud Security Benchmark initiative:
+            az policy assignment create --name 'SecurityBenchmark' \
+              --policy-set-definition '1f3afdf9-d0c9-4c3d-847f-89da613e70a8' \
+              --scope '/subscriptions/<subscriptionId>'
+
+  - resource_type: "microsoft.compute/virtualmachines"
+    relevance: "medium"
+    checks:
+      - check_id: "F7-VM-001"
+        check_name: "VMs have vulnerability assessment solution deployed"
+        description: "Verify that all virtual machines have a vulnerability assessment solution (e.g., Qualys or Defender VA) deployed."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            SecurityResources
+            | where type == 'microsoft.security/assessments'
+            | where properties.displayName == 'Machines should have a vulnerability assessment solution'
+            | where properties.status.code == 'Unhealthy'
+            | project subscriptionId, resourceGroup,
+                      resourceId=properties.resourceDetails.id,
+                      status=properties.status.code
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_security_center_server_vulnerability_assessment"
+              expected: "Vulnerability assessment extension should be deployed on VMs"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.Compute/virtualMachines/extensions"
+              expected: "Vulnerability assessment extension should be deployed on VMs"
+        azure_policies:
+          - policy_name: "A vulnerability assessment solution should be enabled on your virtual machines"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/501541f7-f7e7-4cd6-868c-4190fdad3ac9"
+            effect: "AuditIfNotExists"
+        remediation: |
+          Deploy the built-in Defender for Cloud vulnerability assessment:
+            1. Navigate to Defender for Cloud > Recommendations.
+            2. Select "Machines should have a vulnerability assessment solution."
+            3. Click "Fix" to deploy the built-in Qualys scanner.
+          Or enable via policy by assigning the VA solution deployment policy.

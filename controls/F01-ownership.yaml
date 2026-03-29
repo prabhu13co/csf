@@ -1,0 +1,439 @@
+control_id: "F1"
+control_name: "Ownership for all resources"
+control_family: "Governance"
+severity: "high"
+
+description: |
+  The technical owner of cloud resources must be known and enforced through labeling.
+  Identification of IT assets is required to enforce appropriate security measures and
+  ensure accountability. Every workload must have a registered Business Application in
+  the central CMDB, linked via the WorkloadID tag. TechnicalContacts must be set so that
+  incident responders, cost managers, and security teams can reach the responsible party.
+
+  Environment conventions:
+    - Subscription naming: asm-{env}01-{servicename}
+    - VNet RG naming: vneteuwe-{servicename}-{env}01-rg
+    - Tags WorkloadID and TechnicalContacts are applied on subscriptions and resource groups,
+      NOT on individual resources (resources inherit via policy).
+    - VNet RGs are tagged to the platform team even inside dedicated workload subscriptions.
+    - Hub-spoke topology: platform team manages NSGs, firewall, and shared networking.
+
+risk_description: |
+  When the owner of a cloud resource is unknown, the organization cannot hold anyone
+  responsible for failures, data leakage, or security incidents. Cost anomalies go
+  unnoticed because there is no one to notify. Incident response is delayed because
+  responders cannot identify the responsible team. Orphaned resources accumulate,
+  increasing attack surface and wasting budget. Audit and compliance requirements
+  for asset inventory cannot be met.
+
+applicable_resource_types:
+  - resource_type: "microsoft.resources/resourcegroups"
+    relevance: "high"
+    rationale: "Resource groups are the primary ownership boundary; tags here are inherited by child resources via policy."
+    checks:
+      - check_id: "F1-RG-001"
+        check_name: "Resource group must have WorkloadID tag"
+        description: "All resource groups must have a WorkloadID tag identifying the owning workload in the CMDB."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, subscriptionId, tags, location
+            | order by subscriptionId asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'tags\s*=\s*\{[^}]*WorkloadID'
+              expected: "WorkloadID tag must be present in resource group tags block"
+            - file_pattern: "**/*.bicep"
+              search: "tags:.*WorkloadID"
+              expected: "WorkloadID tag must be present in resource group tags"
+            - file_pattern: "**/parameters*.json"
+              search: '"WorkloadID"'
+              expected: "WorkloadID must appear in ARM parameter files for resource groups"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Add a WorkloadID tag to the resource group that matches the Business Application
+          identifier in the central CMDB. Example in Terraform:
+            resource "azurerm_resource_group" "example" {
+              tags = { WorkloadID = "APP-12345" }
+            }
+
+      - check_id: "F1-RG-002"
+        check_name: "Resource group must have TechnicalContacts tag"
+        description: "All resource groups must have a TechnicalContacts tag with email distribution list for the responsible team."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnull(tags.TechnicalContacts) or tostring(tags.TechnicalContacts) == ''
+            | project name, subscriptionId, tags, location
+            | order by subscriptionId asc, name asc
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'tags\s*=\s*\{[^}]*TechnicalContacts'
+              expected: "TechnicalContacts tag must be present in resource group tags block"
+            - file_pattern: "**/*.bicep"
+              search: "tags:.*TechnicalContacts"
+              expected: "TechnicalContacts tag must be present in resource group tags"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "TechnicalContacts"
+        remediation: |
+          Add a TechnicalContacts tag with a distribution list email address.
+          Example: TechnicalContacts = "team-platform@company.com"
+
+      - check_id: "F1-RG-003"
+        check_name: "VNet resource groups must be tagged to platform team"
+        description: "Resource groups following the vneteuwe-{servicename}-{env}01-rg naming pattern must have WorkloadID and TechnicalContacts referencing the platform/networking team."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where name matches regex @'^vneteuwe-.*-rg$'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+                or isnull(tags.TechnicalContacts) or tostring(tags.TechnicalContacts) == ''
+            | project name, subscriptionId, tags, location
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'name\s*=\s*"vneteuwe-'
+              expected: "VNet RGs must include platform team WorkloadID and TechnicalContacts in tags"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          VNet resource groups are managed by the platform team in a hub-spoke model.
+          Even in dedicated workload subscriptions, the VNet RG must carry the platform
+          team's WorkloadID (e.g., "PLATFORM-NET-001") and TechnicalContacts
+          (e.g., "platform-networking@company.com").
+
+  - resource_type: "microsoft.subscription/aliases"
+    relevance: "high"
+    rationale: "Subscriptions are the top-level billing and governance boundary; WorkloadID at subscription level ties cost and policy to a workload."
+    checks:
+      - check_id: "F1-SUB-001"
+        check_name: "Subscription must have WorkloadID tag"
+        description: "All subscriptions must have a WorkloadID tag linking them to the CMDB."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, subscriptionId, tags
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_subscription"
+              expected: "Subscription resource must include WorkloadID tag"
+        azure_policies: []
+        remediation: |
+          Apply the WorkloadID tag at the subscription level via Azure portal,
+          CLI, or IaC. Subscription naming should follow asm-{env}01-{servicename}.
+
+      - check_id: "F1-SUB-002"
+        check_name: "Subscription must follow naming convention"
+        description: "Subscriptions must follow the asm-{env}01-{servicename} naming pattern."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions'
+            | where not(name matches regex @'^asm-(dev|tst|acc|prd)\d{2}-')
+            | project name, subscriptionId, tags
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'name\s*=\s*"asm-'
+              expected: "Subscription name must follow asm-{env}01-{servicename} convention"
+        azure_policies: []
+        remediation: |
+          Rename or recreate the subscription following the naming convention:
+          asm-{env}01-{servicename}, e.g., asm-prd01-paymentapi.
+
+  - resource_type: "microsoft.compute/virtualmachines"
+    relevance: "medium"
+    rationale: "VMs inherit tags from their resource group; verify inheritance is working."
+    checks:
+      - check_id: "F1-VM-001"
+        check_name: "VM must inherit WorkloadID tag from resource group"
+        description: "Virtual machines should inherit the WorkloadID tag from their parent resource group via policy."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.compute/virtualmachines'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_virtual_machine"
+              expected: "VM should be in a tagged resource group; tag inheritance policy handles the rest"
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the tag inheritance policy is assigned at the management group or subscription
+          level. The policy will automatically copy WorkloadID from the resource group to child
+          resources during creation or via remediation tasks.
+
+  - resource_type: "microsoft.storage/storageaccounts"
+    relevance: "medium"
+    rationale: "Storage accounts hold data; ownership must be traceable."
+    checks:
+      - check_id: "F1-SA-001"
+        check_name: "Storage account must inherit WorkloadID tag"
+        description: "Storage accounts should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: "azurerm_storage_account"
+              expected: "Storage account should be in a tagged resource group"
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the resource group containing the storage account has a WorkloadID tag
+          and that the tag inheritance policy is assigned.
+
+  - resource_type: "microsoft.keyvault/vaults"
+    relevance: "medium"
+    rationale: "Key vaults store secrets and certificates; ownership must be clear for incident response."
+    checks:
+      - check_id: "F1-KV-001"
+        check_name: "Key vault must inherit WorkloadID tag"
+        description: "Key vaults should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.keyvault/vaults'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the parent resource group carries WorkloadID and tag inheritance policy is active.
+
+  - resource_type: "microsoft.network/virtualnetworks"
+    relevance: "high"
+    rationale: "VNets are managed by the platform team in hub-spoke; ownership tags trace back to the networking team."
+    checks:
+      - check_id: "F1-VNET-001"
+        check_name: "VNet resource group must be tagged to platform team"
+        description: "Virtual networks reside in VNet RGs managed by the platform team; those RGs must carry the platform WorkloadID."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.network/virtualnetworks'
+            | extend rgName = resourceGroup
+            | join kind=leftouter (
+                ResourceContainers
+                | where type == 'microsoft.resources/subscriptions/resourcegroups'
+                | project rgName=name, rgTags=tags, subscriptionId
+            ) on rgName, subscriptionId
+            | where isnull(rgTags.WorkloadID) or tostring(rgTags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          The VNet resource group (vneteuwe-{servicename}-{env}01-rg) must carry
+          the platform team's WorkloadID even in workload-dedicated subscriptions.
+
+  - resource_type: "microsoft.network/networksecuritygroups"
+    relevance: "medium"
+    rationale: "NSGs are managed by the platform team; ownership must be traceable to the network team."
+    checks:
+      - check_id: "F1-NSG-001"
+        check_name: "NSG must inherit WorkloadID tag"
+        description: "NSGs should inherit WorkloadID; platform-managed NSGs trace to the platform team."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.network/networksecuritygroups'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          NSGs in VNet RGs inherit the platform team's WorkloadID. Ensure tag inheritance policy is active.
+
+  - resource_type: "microsoft.sql/servers"
+    relevance: "medium"
+    rationale: "SQL servers hold business data; ownership must be known for incident and compliance purposes."
+    checks:
+      - check_id: "F1-SQL-001"
+        check_name: "SQL server must inherit WorkloadID tag"
+        description: "SQL servers should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the parent resource group has a WorkloadID tag and tag inheritance policy is assigned.
+
+  - resource_type: "microsoft.containerservice/managedclusters"
+    relevance: "medium"
+    rationale: "AKS clusters host multiple workloads; the cluster owner must be identified."
+    checks:
+      - check_id: "F1-AKS-001"
+        check_name: "AKS cluster must inherit WorkloadID tag"
+        description: "AKS clusters should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerservice/managedclusters'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the parent resource group has WorkloadID and tag inheritance policy is active.
+
+  - resource_type: "microsoft.web/sites"
+    relevance: "medium"
+    rationale: "App Services expose endpoints; ownership needed for vulnerability management."
+    checks:
+      - check_id: "F1-WEB-001"
+        check_name: "App Service must inherit WorkloadID tag"
+        description: "App Services should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the parent resource group has WorkloadID and tag inheritance policy is active.
+
+  - resource_type: "microsoft.recoveryservices/vaults"
+    relevance: "medium"
+    rationale: "Recovery Services vaults contain backup data; ownership must be traceable."
+    checks:
+      - check_id: "F1-RSV-001"
+        check_name: "Recovery Services vault must inherit WorkloadID tag"
+        description: "Recovery Services vaults should inherit WorkloadID from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.recoveryservices/vaults'
+            | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+            | project name, resourceGroup, subscriptionId, location, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "WorkloadID"
+        remediation: |
+          Ensure the parent resource group has WorkloadID and tag inheritance policy is active.
+
+cross_cutting_queries:
+  - query_id: "F1-CROSS-001"
+    query_name: "All untagged resource groups across all subscriptions"
+    description: "Find every resource group missing either WorkloadID or TechnicalContacts."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions/resourcegroups'
+      | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+          or isnull(tags.TechnicalContacts) or tostring(tags.TechnicalContacts) == ''
+      | project name, subscriptionId,
+          missingWorkloadID = iif(isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == '', true, false),
+          missingTechnicalContacts = iif(isnull(tags.TechnicalContacts) or tostring(tags.TechnicalContacts) == '', true, false),
+          tags, location
+
+  - query_id: "F1-CROSS-002"
+    query_name: "All untagged subscriptions"
+    description: "Find every subscription missing the WorkloadID tag."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions'
+      | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+      | project name, subscriptionId, tags
+
+  - query_id: "F1-CROSS-003"
+    query_name: "Resources missing inherited WorkloadID tag"
+    description: "Find resources where tag inheritance has not propagated WorkloadID."
+    query: |
+      Resources
+      | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+      | summarize count() by type, subscriptionId
+      | order by count_ desc
+
+  - query_id: "F1-CROSS-004"
+    query_name: "VNet RGs not assigned to platform team"
+    description: "VNet resource groups that may be missing platform team ownership."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions/resourcegroups'
+      | where name matches regex @'^vneteuwe-.*-rg$'
+      | where isnull(tags.WorkloadID) or tostring(tags.WorkloadID) == ''
+          or isnull(tags.TechnicalContacts) or tostring(tags.TechnicalContacts) == ''
+      | project name, subscriptionId, tags

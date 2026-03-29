@@ -1,0 +1,447 @@
+control_id: "F2"
+control_name: "Security and Compliance Labelling"
+control_family: "Governance"
+severity: "high"
+
+description: |
+  Resources must be labeled for business value, data sensitivity, and security
+  classification according to the Organization classification scheme. These labels
+  drive automated policy enforcement: a resource group tagged DataClassification=Confidential
+  triggers stricter encryption, network isolation, and access controls. Without
+  classification labels, security controls cannot be tailored to the actual risk profile,
+  leading to either over-provisioning (cost waste) or under-provisioning (security gaps).
+
+  Required classification tags on resource groups:
+    - DataClassification: Public | Internal | Confidential | Restricted
+    - Environment: dev | tst | acc | prd
+    - Criticality: Low | Medium | High | Critical
+
+  Tags are applied at the resource group level and inherited by child resources via policy.
+  Individual resources do NOT need direct tagging.
+
+risk_description: |
+  Without proper security and compliance labelling, the organization cannot enforce
+  proportionate security controls. Confidential data may be stored in resource groups
+  with public-tier controls. Business-critical systems may not receive the high-availability
+  treatment they require. Compliance auditors cannot verify that data handling meets
+  regulatory requirements (GDPR, SOX, HIPAA) because there is no machine-readable
+  classification. Unauthorized access may go undetected because monitoring thresholds
+  are not calibrated to the sensitivity of the data.
+
+applicable_resource_types:
+  - resource_type: "microsoft.resources/resourcegroups"
+    relevance: "high"
+    rationale: "Resource groups are the primary boundary for classification tags; all child resources inherit."
+    checks:
+      - check_id: "F2-RG-001"
+        check_name: "Resource group must have DataClassification tag"
+        description: "All resource groups must declare the data classification level of the workload they contain."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, subscriptionId, tags, location
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'tags\s*=\s*\{[^}]*DataClassification'
+              expected: "DataClassification tag must be present in resource group tags"
+            - file_pattern: "**/*.bicep"
+              search: "tags:.*DataClassification"
+              expected: "DataClassification tag must be present"
+            - file_pattern: "**/parameters*.json"
+              search: '"DataClassification"'
+              expected: "DataClassification must appear in ARM parameter files"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Add a DataClassification tag to the resource group with one of the allowed values:
+          Public, Internal, Confidential, or Restricted.
+          Example: DataClassification = "Confidential"
+
+      - check_id: "F2-RG-002"
+        check_name: "Resource group must have Environment tag"
+        description: "All resource groups must declare their deployment environment."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnull(tags.Environment) or tostring(tags.Environment) == ''
+            | project name, subscriptionId, tags, location
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'tags\s*=\s*\{[^}]*Environment'
+              expected: "Environment tag must be present in resource group tags"
+            - file_pattern: "**/*.bicep"
+              search: "tags:.*Environment"
+              expected: "Environment tag must be present"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "Environment"
+        remediation: |
+          Add an Environment tag matching the subscription environment:
+          dev, tst, acc, or prd. Must be consistent with the subscription name
+          (asm-{env}01-{servicename}).
+
+      - check_id: "F2-RG-003"
+        check_name: "Resource group must have Criticality tag"
+        description: "All resource groups must declare the business criticality of the workload."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnull(tags.Criticality) or tostring(tags.Criticality) == ''
+            | project name, subscriptionId, tags, location
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'tags\s*=\s*\{[^}]*Criticality'
+              expected: "Criticality tag must be present in resource group tags"
+            - file_pattern: "**/*.bicep"
+              search: "tags:.*Criticality"
+              expected: "Criticality tag must be present"
+        azure_policies:
+          - policy_name: "Require a tag on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/96670d01-0a4d-4649-9c89-2d3abc0a5025"
+            effect: "deny"
+            parameters:
+              tagName: "Criticality"
+        remediation: |
+          Add a Criticality tag: Low, Medium, High, or Critical.
+          Critical workloads trigger enhanced monitoring, backup frequency, and DR requirements.
+
+      - check_id: "F2-RG-004"
+        check_name: "DataClassification tag must use allowed values"
+        description: "DataClassification must be one of the Organization-defined values to ensure consistent policy enforcement."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            ResourceContainers
+            | where type == 'microsoft.resources/subscriptions/resourcegroups'
+            | where isnotnull(tags.DataClassification)
+            | where tostring(tags.DataClassification) !in ('Public', 'Internal', 'Confidential', 'Restricted')
+            | project name, subscriptionId, DataClassification=tostring(tags.DataClassification)
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'DataClassification\s*=\s*"(Public|Internal|Confidential|Restricted)"'
+              expected: "DataClassification value must be one of: Public, Internal, Confidential, Restricted"
+        azure_policies:
+          - policy_name: "Require a tag and its value on resource groups"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/8ce3da23-7156-49e4-b145-24f95f9dcb46"
+            effect: "deny"
+            parameters:
+              tagName: "DataClassification"
+              tagValue: "Public|Internal|Confidential|Restricted"
+        remediation: |
+          Correct the DataClassification tag to one of: Public, Internal, Confidential, Restricted.
+
+  - resource_type: "microsoft.storage/storageaccounts"
+    relevance: "high"
+    rationale: "Storage accounts hold data blobs, files, tables, and queues; classification determines encryption and access controls."
+    checks:
+      - check_id: "F2-SA-001"
+        check_name: "Storage account must inherit DataClassification tag"
+        description: "Storage accounts should inherit the DataClassification tag from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.storage/storageaccounts'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.sql/servers"
+    relevance: "high"
+    rationale: "SQL servers store structured business data; classification is essential for access control and audit."
+    checks:
+      - check_id: "F2-SQL-001"
+        check_name: "SQL server must inherit DataClassification tag"
+        description: "SQL servers should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.sql/servers/databases"
+    relevance: "high"
+    rationale: "Individual databases may contain different data classifications within the same server."
+    checks:
+      - check_id: "F2-SQLDB-001"
+        check_name: "SQL database must inherit DataClassification tag"
+        description: "SQL databases should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.sql/servers/databases'
+            | where name != 'master'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure tag inheritance policy is active. For databases with higher classification
+          than their resource group, apply the tag directly.
+
+  - resource_type: "microsoft.dbforpostgresql/flexibleservers"
+    relevance: "high"
+    rationale: "PostgreSQL flexible servers store application data requiring classification."
+    checks:
+      - check_id: "F2-PG-001"
+        check_name: "PostgreSQL flexible server must inherit DataClassification tag"
+        description: "PostgreSQL flexible servers should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.dbforpostgresql/flexibleservers'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.keyvault/vaults"
+    relevance: "high"
+    rationale: "Key vaults store secrets and keys; always at least Confidential classification."
+    checks:
+      - check_id: "F2-KV-001"
+        check_name: "Key vault must inherit DataClassification tag"
+        description: "Key vaults should inherit DataClassification; expected minimum Confidential."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.keyvault/vaults'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Key vaults should be in resource groups classified at least as Confidential.
+
+  - resource_type: "microsoft.cognitiveservices/accounts"
+    relevance: "high"
+    rationale: "Cognitive Services process potentially sensitive data (text, images, audio)."
+    checks:
+      - check_id: "F2-COG-001"
+        check_name: "Cognitive Services account must inherit DataClassification tag"
+        description: "Cognitive Services accounts should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.cognitiveservices/accounts'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.documentdb/databaseaccounts"
+    relevance: "high"
+    rationale: "Cosmos DB accounts store application data; classification determines access and encryption controls."
+    checks:
+      - check_id: "F2-COSMOS-001"
+        check_name: "Cosmos DB account must inherit DataClassification tag"
+        description: "Cosmos DB accounts should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.documentdb/databaseaccounts'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.web/sites"
+    relevance: "medium"
+    rationale: "App Services process and may cache sensitive data; classification determines TLS and auth requirements."
+    checks:
+      - check_id: "F2-WEB-001"
+        check_name: "App Service must inherit DataClassification tag"
+        description: "App Services should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.web/sites'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.containerregistry/registries"
+    relevance: "medium"
+    rationale: "Container registries store images that may contain embedded secrets or proprietary code."
+    checks:
+      - check_id: "F2-ACR-001"
+        check_name: "Container registry must inherit DataClassification tag"
+        description: "Container registries should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.containerregistry/registries'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+  - resource_type: "microsoft.eventhub/namespaces"
+    relevance: "medium"
+    rationale: "Event Hubs transport data streams that may contain PII or business-sensitive events."
+    checks:
+      - check_id: "F2-EH-001"
+        check_name: "Event Hub namespace must inherit DataClassification tag"
+        description: "Event Hub namespaces should inherit DataClassification from their resource group."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.eventhub/namespaces'
+            | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+            | project name, resourceGroup, subscriptionId, tags
+        azure_policies:
+          - policy_name: "Inherit a tag from the resource group"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/cd3aa116-8754-49c9-a813-ad46512ece54"
+            effect: "modify"
+            parameters:
+              tagName: "DataClassification"
+        remediation: |
+          Ensure the parent resource group has DataClassification and tag inheritance policy is active.
+
+cross_cutting_queries:
+  - query_id: "F2-CROSS-001"
+    query_name: "Resource groups missing any classification tag"
+    description: "Find resource groups missing DataClassification, Environment, or Criticality."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions/resourcegroups'
+      | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+          or isnull(tags.Environment) or tostring(tags.Environment) == ''
+          or isnull(tags.Criticality) or tostring(tags.Criticality) == ''
+      | project name, subscriptionId,
+          missingDataClassification = iif(isnull(tags.DataClassification) or tostring(tags.DataClassification) == '', true, false),
+          missingEnvironment = iif(isnull(tags.Environment) or tostring(tags.Environment) == '', true, false),
+          missingCriticality = iif(isnull(tags.Criticality) or tostring(tags.Criticality) == '', true, false),
+          tags
+
+  - query_id: "F2-CROSS-002"
+    query_name: "Resource groups with invalid DataClassification values"
+    description: "Find resource groups using non-standard DataClassification values."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions/resourcegroups'
+      | where isnotnull(tags.DataClassification)
+      | where tostring(tags.DataClassification) !in ('Public', 'Internal', 'Confidential', 'Restricted')
+      | project name, subscriptionId, DataClassification=tostring(tags.DataClassification)
+
+  - query_id: "F2-CROSS-003"
+    query_name: "Environment tag mismatch with subscription name"
+    description: "Detect resource groups where Environment tag does not match the subscription naming convention."
+    query: |
+      ResourceContainers
+      | where type == 'microsoft.resources/subscriptions/resourcegroups'
+      | where isnotnull(tags.Environment)
+      | extend subName = tostring(split(subscriptionId, '/')[-1])
+      | join kind=inner (
+          ResourceContainers
+          | where type == 'microsoft.resources/subscriptions'
+          | project subscriptionId, subscriptionName=name
+      ) on subscriptionId
+      | extend expectedEnv = extract(@'asm-(\w+)\d{2}-', 1, subscriptionName)
+      | where isnotempty(expectedEnv)
+      | where tostring(tags.Environment) != expectedEnv
+      | project name, subscriptionName, taggedEnv=tostring(tags.Environment), expectedEnv
+
+  - query_id: "F2-CROSS-004"
+    query_name: "Data-bearing resources missing DataClassification inheritance"
+    description: "Find data-bearing resources where DataClassification tag was not inherited."
+    query: |
+      Resources
+      | where type in (
+          'microsoft.storage/storageaccounts',
+          'microsoft.sql/servers',
+          'microsoft.sql/servers/databases',
+          'microsoft.dbforpostgresql/flexibleservers',
+          'microsoft.dbformysql/flexibleservers',
+          'microsoft.documentdb/databaseaccounts',
+          'microsoft.keyvault/vaults',
+          'microsoft.cognitiveservices/accounts',
+          'microsoft.eventhub/namespaces',
+          'microsoft.servicebus/namespaces',
+          'microsoft.cache/redis'
+        )
+      | where isnull(tags.DataClassification) or tostring(tags.DataClassification) == ''
+      | summarize count() by type, subscriptionId
+      | order by count_ desc

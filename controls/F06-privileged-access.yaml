@@ -1,0 +1,226 @@
+control_id: "F6"
+control_name: "Privileged Access Management"
+control_family: "Identity and Access Management"
+severity: "high"
+description: |
+  Ensure that privileged access to Azure resources is tightly controlled through
+  Just-In-Time (JIT) role activation, least-privilege principles, auditable assignment
+  processes, and semi-annual access reviews. Standing privileged permissions must be
+  eliminated in favor of time-bound, approval-gated elevation via Azure AD Privileged
+  Identity Management (PIM).
+risk_description: |
+  Excessive administrator permissions increase the blast radius of compromised accounts.
+  Identity theft targeting admin accounts can grant attackers full control of cloud
+  environments. Standing (permanent) privileged assignments create persistent attack
+  surfaces that bypass detection. Without periodic reviews, privilege creep accumulates
+  over time, leading to unauthorized access and regulatory non-compliance.
+applicable_resource_types:
+  - resource_type: "microsoft.authorization/roleassignments"
+    relevance: "high"
+    checks:
+      - check_id: "F6-RA-001"
+        check_name: "No permanent Owner assignments at subscription scope"
+        description: "Verify that no user principals hold permanent (non-PIM) Owner role assignments at the subscription level."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roleassignments'
+            | where properties.roleDefinitionId endswith '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
+            | where properties.scope startswith '/subscriptions/' and properties.scope !contains '/resourceGroups/'
+            | where properties.principalType == 'User'
+            | project subscriptionId, principalId=properties.principalId,
+                      principalType=properties.principalType,
+                      scope=properties.scope, createdOn=properties.createdOn
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'role_definition_name\s*=\s*"Owner"'
+              expected: "Should not assign Owner role directly; use PIM-eligible assignments"
+            - file_pattern: "**/*.bicep"
+              search: "roleDefinitionId.*8e3af657-a8ff-443c-a75c-2fe8c4bcb635"
+              expected: "Should not assign Owner role directly; use PIM-eligible assignments"
+        azure_policies:
+          - policy_name: "Audit usage of custom RBAC rules"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5"
+            effect: "Audit"
+        remediation: |
+          Remove permanent Owner role assignments for user principals at subscription scope.
+          Configure Azure AD PIM eligible assignments instead:
+            1. Navigate to Azure AD > Privileged Identity Management > Azure Resources.
+            2. Select the subscription and add the user as an eligible Owner.
+            3. Set maximum activation duration to 8 hours.
+            4. Require approval and MFA for activation.
+            5. Remove the standing role assignment via az CLI:
+               az role assignment delete --assignee <principalId> --role Owner --scope /subscriptions/<subId>
+
+      - check_id: "F6-RA-002"
+        check_name: "No permanent Contributor assignments at subscription scope"
+        description: "Verify that no user principals hold permanent Contributor role assignments at subscription level."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roleassignments'
+            | where properties.roleDefinitionId endswith 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+            | where properties.scope startswith '/subscriptions/' and properties.scope !contains '/resourceGroups/'
+            | where properties.principalType == 'User'
+            | project subscriptionId, principalId=properties.principalId,
+                      principalType=properties.principalType,
+                      scope=properties.scope
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'role_definition_name\s*=\s*"Contributor"'
+              expected: "Should use PIM-eligible assignments rather than standing Contributor"
+            - file_pattern: "**/*.bicep"
+              search: "roleDefinitionId.*b24988ac-6180-42a0-ab88-20f7382dd24c"
+              expected: "Should use PIM-eligible assignments rather than standing Contributor"
+        azure_policies:
+          - policy_name: "Audit usage of custom RBAC rules"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5"
+            effect: "Audit"
+        remediation: |
+          Remove permanent Contributor role assignments for user principals.
+          Migrate to PIM eligible assignments with time-bound activation and approval workflows.
+
+      - check_id: "F6-RA-003"
+        check_name: "Service principals follow least privilege"
+        description: "Verify that service principals do not hold Owner or Contributor at broad scopes (subscription or management group)."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roleassignments'
+            | where properties.principalType == 'ServicePrincipal'
+            | where properties.roleDefinitionId endswith '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
+                 or properties.roleDefinitionId endswith 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+            | where properties.scope startswith '/subscriptions/' and properties.scope !contains '/resourceGroups/'
+            | project subscriptionId, principalId=properties.principalId,
+                      roleDefinitionId=properties.roleDefinitionId, scope=properties.scope
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'azurerm_role_assignment.*\n.*scope\s*=\s*data\.azurerm_subscription'
+              expected: "Service principals should be scoped to resource groups, not subscriptions"
+            - file_pattern: "**/*.bicep"
+              search: "scope: subscription()"
+              expected: "Service principals should be scoped to resource groups, not subscriptions"
+        azure_policies:
+          - policy_name: "Audit usage of custom RBAC rules"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5"
+            effect: "Audit"
+        remediation: |
+          Replace broad-scope service principal assignments with least-privilege custom roles
+          scoped to specific resource groups:
+            1. Identify the exact permissions the service principal requires.
+            2. Create a custom role definition with only those permissions.
+            3. Assign the custom role at the resource group level.
+            4. Remove the subscription-level Owner/Contributor assignment.
+
+  - resource_type: "microsoft.authorization/roledefinitions"
+    relevance: "high"
+    checks:
+      - check_id: "F6-RD-001"
+        check_name: "Custom roles follow least privilege"
+        description: "Verify that custom role definitions do not contain wildcard actions (e.g., '*') or overly broad permissions."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roledefinitions'
+            | where properties.type == 'CustomRole'
+            | mv-expand permissions = properties.permissions
+            | mv-expand action = permissions.actions
+            | where action == '*'
+            | project subscriptionId, roleName=properties.roleName,
+                      roleId=id, action
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'actions\s*=\s*\["[*]"\]'
+              expected: "Custom roles should not use wildcard actions; enumerate specific permissions"
+            - file_pattern: "**/*.bicep"
+              search: "actions: ['*']"
+              expected: "Custom roles should not use wildcard actions; enumerate specific permissions"
+        azure_policies:
+          - policy_name: "Audit usage of custom RBAC rules"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5"
+            effect: "Audit"
+        remediation: |
+          Review and refine custom role definitions:
+            1. List all custom roles: az role definition list --custom-role-only true
+            2. For each role with wildcard actions, identify the actual operations needed.
+            3. Replace '*' with specific action strings (e.g., 'Microsoft.Compute/virtualMachines/read').
+            4. Add appropriate notActions to restrict unintended permissions.
+            5. Update the role definition: az role definition update --role-definition <updated-json>
+
+  - resource_type: "microsoft.managedidentity/userassignedidentities"
+    relevance: "medium"
+    checks:
+      - check_id: "F6-MI-001"
+        check_name: "Managed identities use least privilege assignments"
+        description: "Verify that user-assigned managed identities do not hold Owner or Contributor at subscription scope."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            AuthorizationResources
+            | where type == 'microsoft.authorization/roleassignments'
+            | where properties.principalType == 'ServicePrincipal'
+            | where properties.roleDefinitionId endswith '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
+                 or properties.roleDefinitionId endswith 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+            | join kind=inner (
+                Resources
+                | where type == 'microsoft.managedidentity/userassignedidentities'
+                | project principalId=properties.principalId, identityName=name, identityRg=resourceGroup
+            ) on $left.properties.principalId == $right.principalId
+            | project subscriptionId, identityName, identityRg, scope=properties.scope
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'azurerm_user_assigned_identity'
+              expected: "Ensure associated role assignments are scoped to resource groups with minimal permissions"
+            - file_pattern: "**/*.bicep"
+              search: "Microsoft.ManagedIdentity/userAssignedIdentities"
+              expected: "Ensure associated role assignments are scoped to resource groups with minimal permissions"
+        azure_policies:
+          - policy_name: "Audit usage of custom RBAC rules"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/a451c1ef-c6ca-483d-87ed-f49761e3ffb5"
+            effect: "Audit"
+        remediation: |
+          Review all role assignments for user-assigned managed identities.
+          Scope assignments to the narrowest resource group or resource level.
+          Replace built-in broad roles with custom roles containing only required permissions.
+
+  - resource_type: "microsoft.keyvault/vaults"
+    relevance: "medium"
+    checks:
+      - check_id: "F6-KV-001"
+        check_name: "Key Vault uses RBAC authorization model"
+        description: "Verify that Key Vaults use Azure RBAC instead of vault access policies for finer-grained privilege control."
+        runtime_check:
+          method: "resource_graph"
+          query: |
+            Resources
+            | where type == 'microsoft.keyvault/vaults'
+            | where properties.enableRbacAuthorization != true
+            | project name, resourceGroup, subscriptionId,
+                      enableRbacAuthorization=properties.enableRbacAuthorization
+        code_check:
+          patterns:
+            - file_pattern: "**/*.tf"
+              search: 'enable_rbac_authorization\s*=\s*false'
+              expected: "enable_rbac_authorization should be true for RBAC-based access control"
+            - file_pattern: "**/*.bicep"
+              search: "enableRbacAuthorization: false"
+              expected: "enableRbacAuthorization should be true for RBAC-based access control"
+        azure_policies:
+          - policy_name: "Azure Key Vault should use RBAC permission model"
+            policy_id: "/providers/Microsoft.Authorization/policyDefinitions/12d4fa5e-1f9f-4c21-97a9-b99b3c6611b4"
+            effect: "Audit"
+        remediation: |
+          Migrate Key Vaults to RBAC authorization:
+            1. Enable RBAC: az keyvault update --name <vault> --enable-rbac-authorization true
+            2. Assign Key Vault RBAC roles (Key Vault Secrets User, Key Vault Crypto User, etc.)
+               to the principals that previously had vault access policies.
+            3. Verify access, then remove legacy access policies.
